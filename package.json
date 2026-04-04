@@ -1,0 +1,16 @@
+{
+  "name": "markdown-kit",
+  "type": "module",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "bun run --cwd apps/web dev",
+    "build": "bun run --cwd apps/service build && bun run --cwd apps/web build",
+    "typecheck": "bun run --cwd apps/service typecheck && bun run --cwd apps/web typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

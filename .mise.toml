@@ -1,0 +1,50 @@
+[env]
+_.path = ["{{config_root}}/node_modules/.bin"]
+NODE_ENV = "{{ env.NODE_ENV | default(value='development') }}"
+
+[tools]
+bun = "latest"
+node = "{{ env['NODE_VERSION'] | default(value='lts') }}"
+
+[tasks.install]
+alias = "i"
+description = "Install dependencies with Bun"
+run = "bun install"
+
+[tasks.dev]
+alias = "d"
+description = "Run the web application in development mode"
+run = "bun run dev"
+
+[tasks."dev:web"]
+description = "Run the web application"
+run = "bun run --cwd apps/web dev"
+
+[tasks."dev:service"]
+description = "Run the preview service"
+run = "bun run --cwd apps/service dev"
+
+[tasks."build:web"]
+description = "Build the web app"
+run = "bun run --cwd apps/web build"
+
+[tasks."build:service"]
+description = "Build the preview service"
+run = "bun run --cwd apps/service build"
+
+[tasks.build]
+alias = "b"
+description = "Build all applications"
+run = "bun run build"
+
+[tasks."start:web"]
+description = "Serve built web app (vite preview)"
+run = "bun run --cwd apps/web preview --host 127.0.0.1 --port {{ env.MK_WEB_PORT | default(value='5173') }} --strictPort"
+
+[tasks."start:service"]
+description = "Run built preview service"
+run = "bun run --cwd apps/service start"
+
+[tasks.typecheck]
+description = "Run TypeScript type checks"
+run = "bun run typecheck"
