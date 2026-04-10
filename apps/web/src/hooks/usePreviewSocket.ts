@@ -22,11 +22,25 @@ export function usePreviewSocket({
 }: UsePreviewSocketParams) {
   const lastTickRef = useRef(-1);
   const lastHtmlRef = useRef("");
+  const rafRef = useRef<number | null>(null);
+  const syncViewportRef = useRef(syncViewport);
+
+  useEffect(() => {
+    syncViewportRef.current = syncViewport;
+  }, [syncViewport]);
 
   useEffect(() => {
     let socket: WebSocket | null = null;
     let reconnectTimer: number | null = null;
     let stopped = false;
+
+    const scheduleViewportSync = () => {
+      if (rafRef.current !== null) return;
+      rafRef.current = window.requestAnimationFrame(() => {
+        rafRef.current = null;
+        syncViewportRef.current();
+      });
+    };
 
     const connect = () => {
       if (stopped) return;
@@ -52,7 +66,7 @@ export function usePreviewSocket({
           const payload = data.payload as CursorUpdatePayload | undefined;
           if (!payload) return;
           setCursor(payload.cursorLine, payload.lineCount);
-          syncViewport();
+          scheduleViewportSync();
           return;
         }
 
@@ -72,7 +86,7 @@ export function usePreviewSocket({
             lastHtmlRef.current = htmlFromService;
             setHtml(htmlFromService);
           } else {
-            syncViewport();
+            scheduleViewportSync();
           }
           return;
         }
@@ -86,7 +100,9 @@ export function usePreviewSocket({
     return () => {
       stopped = true;
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      if (rafRef.current !== null) window.cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
       socket?.close();
     };
-  }, [setCursor, setFileName, setHtml, setStatus, setTheme, syncViewport, wsUrl]);
+  }, [setCursor, setFileName, setHtml, setStatus, setTheme, wsUrl]);
 }

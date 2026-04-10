@@ -39,7 +39,7 @@ run = "bun run build"
 
 [tasks."start:web"]
 description = "Serve built web app (vite preview)"
-run = "bun run --cwd apps/web preview --host 127.0.0.1 --port {{ env.MK_WEB_PORT | default(value='5173') }} --strictPort"
+run = "bun run --cwd apps/web preview --host 127.0.0.1 --port {{ env.MK_WEB_PORT | default(value='35832') }} --strictPort"
 
 [tasks."start:service"]
 description = "Run built preview service"

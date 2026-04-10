@@ -15,13 +15,15 @@
   --bg-hover: #ececf2;
   --border: #dcdce6;
   --border-soft: #e8e8f0;
+  --glass: rgba(255, 255, 255, 0.78);
+  --glass-soft: rgba(255, 255, 255, 0.62);
 
   /* ── Purple accent (used sparingly) ── */
-  --accent: #7c3aed;
-  --accent-hi: #a855f7;
-  --accent-soft: rgba(124, 58, 237, 0.09);
-  --accent-glow: rgba(124, 58, 237, 0.18);
-  --accent-text: #6d28d9;
+  --accent: #5f6f91;
+  --accent-hi: #7c8daf;
+  --accent-soft: rgba(95, 111, 145, 0.12);
+  --accent-glow: rgba(95, 111, 145, 0.2);
+  --accent-text: #465675;
 
   /* ── Parallelogram clip offset ── */
   --slant: 14px; /* horizontal cut depth for parallelogram shape */
@@ -40,7 +42,7 @@
   --font-mono:
     "JetBrains Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
 
-  --radius: 0.5rem;
+  --radius: 0;
   --header-h: 3rem;
 }
 
@@ -49,22 +51,24 @@
   --fg: #e2e2ea;
   --fg-muted: #9898b0;
   --fg-subtle: #66667a;
-  --bg: #141418; /* very deep, near-neutral-dark with a whisper of purple */
-  --bg-page: #0d0d10; /* deepest layer */
-  --bg-code: #1a1a20; /* slightly raised */
-  --bg-hover: #202028;
-  --border: #2e2e3a;
-  --border-soft: #222230;
+  --bg: #121319;
+  --bg-page: #0a0b10;
+  --bg-code: #171a23;
+  --bg-hover: #1b1f2b;
+  --border: rgba(168, 182, 220, 0.2);
+  --border-soft: rgba(156, 170, 206, 0.14);
+  --glass: rgba(18, 21, 30, 0.72);
+  --glass-soft: rgba(23, 27, 39, 0.58);
 
-  --accent: #b87fff; /* soft lavender — readable on deep dark */
-  --accent-hi: #d8a0ff;
-  --accent-soft: rgba(184, 127, 255, 0.1);
-  --accent-glow: rgba(184, 127, 255, 0.22);
-  --accent-text: #c9a0ff;
+  --accent: #92a4cc;
+  --accent-hi: #a5b6da;
+  --accent-soft: rgba(146, 164, 204, 0.12);
+  --accent-glow: rgba(146, 164, 204, 0.24);
+  --accent-text: #b7c6e5;
 
-  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.45);
-  --shadow-md: 0 4px 18px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.28);
+  --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.34), 0 2px 10px rgba(0, 0, 0, 0.22);
+  --shadow-lg: 0 16px 44px rgba(0, 0, 0, 0.42), 0 4px 14px rgba(0, 0, 0, 0.28);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -95,20 +99,6 @@
   *::after {
     box-sizing: border-box;
   }
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   PAGE SHELL
-   ═══════════════════════════════════════════════════════════════════ */
-.app-root {
-  min-height: 100dvh;
-  width: 100%;
-  background-color: var(--bg-page);
-  color: var(--fg);
-  -webkit-font-smoothing: antialiased;
-  transition:
-    background-color 280ms ease,
-    color 280ms ease;
 }
 
 /* Desktop: centred column with side margins visible */
@@ -149,10 +139,6 @@
     padding: 1.25rem 1rem !important;
   }
 
-  /* Hide conn-badge padding on mobile */
-  .conn-badge-wrap {
-    padding: 0 0.75rem;
-  }
 }
 
 @media (min-width: 769px) and (max-width: 1024px) {
@@ -188,32 +174,32 @@
   gap: 0.625rem;
   height: var(--header-h);
   padding: 0 1rem;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-bottom: 2px solid var(--border);
-  border-radius: 0.625rem 0.625rem 0 0;
+  background: var(--glass-soft);
+  border: 1px solid transparent;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
   box-shadow: var(--shadow-sm);
   overflow: visible;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   transition:
     background-color 280ms ease,
     border-color 280ms ease;
 }
 
-/* Parallelogram accent stripe — slants from full-height left to zero at right */
+.app-header:hover,
+.app-header:focus-within {
+  border-color: var(--border-soft);
+}
+
 .app-header::after {
   content: "";
   position: absolute;
   left: -1px;
   right: -1px;
-  bottom: -2px;
-  height: 2px;
-  background: linear-gradient(
-    90deg,
-    var(--accent) 0%,
-    var(--accent-hi) 50%,
-    transparent 100%
-  );
-  clip-path: polygon(0 0, calc(100% - var(--slant) * 2) 0, 100% 100%, 0 100%);
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, var(--accent-soft) 50%, transparent 100%);
 }
 
 /* ─── File name area ─── */
@@ -237,167 +223,6 @@
   font-weight: 600;
   font-size: 0.8125rem;
   letter-spacing: -0.01em;
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   PARALLELOGRAM BADGES
-   clip-path cuts left-top and right-bottom corners to create a
-   true parallelogram. Text is NOT skewed — only the container shape.
-   ═══════════════════════════════════════════════════════════════════ */
-
-/* Shared parallelogram shape mixin via clip-path */
-.para {
-  clip-path: polygon(
-    var(--slant) 0%,
-    /* top-left cut */ 100% 0%,
-    calc(100% - var(--slant)) 100%,
-    /* bottom-right cut */ 0% 100%
-  );
-}
-
-/* ── Live badge ── */
-.live-badge {
-  --slant: 8px;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.22rem 0.75rem 0.22rem 0.85rem;
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: #15803d;
-  background: rgba(21, 128, 61, 0.09);
-  border: 1px solid rgba(21, 128, 61, 0.25);
-  clip-path: polygon(
-    var(--slant) 0%,
-    100% 0%,
-    calc(100% - var(--slant)) 100%,
-    0% 100%
-  );
-  flex-shrink: 0;
-  transition: background 200ms ease;
-}
-
-[data-theme="dark"] .live-badge {
-  color: #4ade80;
-  background: rgba(74, 222, 128, 0.08);
-  border-color: rgba(74, 222, 128, 0.22);
-}
-
-.live-dot {
-  width: 0.375rem;
-  height: 0.375rem;
-  border-radius: 50%;
-  background: currentColor;
-  flex-shrink: 0;
-  animation: dot-pulse 2.6s ease-in-out infinite;
-}
-
-/* ── Conn badge ── */
-.conn-badge {
-  --slant: 10px;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-  padding: 0.45rem 1.25rem 0.45rem 1.4rem;
-  font-size: 0.7rem;
-  color: var(--fg-muted);
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
-  clip-path: polygon(
-    var(--slant) 0%,
-    100% 0%,
-    calc(100% - var(--slant)) 100%,
-    0% 100%
-  );
-}
-
-.conn-dot {
-  width: 0.425rem;
-  height: 0.425rem;
-  border-radius: 50%;
-  background: #f59e0b;
-  flex-shrink: 0;
-  animation: dot-pulse 1.9s ease-in-out infinite;
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   THEME TOGGLE — parallelogram button
-   ═══════════════════════════════════════════════════════════════════ */
-.theme-toggle {
-  --slant: 8px;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.28rem 0.85rem 0.28rem 0.95rem;
-  border: 1px solid var(--border);
-  background: var(--bg-page);
-  color: var(--fg-muted);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  cursor: pointer;
-  user-select: none;
-  flex-shrink: 0;
-  clip-path: polygon(
-    var(--slant) 0%,
-    100% 0%,
-    calc(100% - var(--slant)) 100%,
-    0% 100%
-  );
-  transition:
-    background-color 200ms ease,
-    border-color 160ms ease,
-    color 160ms ease,
-    box-shadow 160ms ease;
-}
-
-.theme-toggle:hover {
-  color: var(--fg);
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.theme-toggle:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-/* Track */
-.toggle-track {
-  position: relative;
-  width: 2.25rem;
-  height: 1.25rem;
-  border-radius: 999px;
-  background: var(--border);
-  flex-shrink: 0;
-  transition: background-color 300ms ease;
-}
-[data-theme="dark"] .toggle-track {
-  background: var(--accent);
-}
-
-/* Thumb */
-.toggle-thumb {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 0.875rem;
-  height: 0.875rem;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
-  transform: translateX(0);
-  transition:
-    transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1),
-    background-color 280ms ease;
-}
-[data-theme="dark"] .toggle-thumb {
-  transform: translateX(1rem);
-  background: #0d0d10;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -450,9 +275,7 @@
     bottom: -1px;
     width: 3.5rem;
     height: 2px;
-    background: linear-gradient(90deg, var(--accent), var(--accent-hi));
-    /* parallelogram cut on the accent bar itself */
-    clip-path: polygon(0 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+    background: color-mix(in srgb, var(--accent) 55%, transparent);
   }
 
   .markdown-body :where(h2) {
@@ -481,14 +304,14 @@
     color: var(--accent-text) !important;
     text-decoration: none;
     font-weight: 500;
-    border-bottom: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
     transition:
       border-color 130ms ease,
       color 130ms ease;
   }
   .markdown-body :where(a:hover) {
-    color: var(--accent) !important;
-    border-bottom-color: var(--accent);
+    color: var(--fg) !important;
+    border-bottom-color: color-mix(in srgb, var(--fg) 22%, transparent);
   }
 
   /* Inline code — subtle, not purple */
@@ -499,14 +322,14 @@
     border: 1px solid var(--border);
     background-color: var(--bg-code);
     color: var(--fg) !important;
-    border-radius: 0.275em;
+    border-radius: 0;
     padding: 0.08em 0.36em;
   }
 
   /* Code blocks */
   .markdown-body :where(pre.hljs) {
     margin: 1.25em 0;
-    border-radius: var(--radius);
+    border-radius: 0;
     border: 1px solid var(--border-soft);
     /* Parallelogram-ish left accent bar */
     border-left: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
@@ -534,7 +357,7 @@
     border-collapse: collapse;
     overflow-x: auto;
     font-size: 0.875rem;
-    border-radius: var(--radius);
+    border-radius: 0;
     border: 1px solid var(--border);
     overflow: hidden;
   }
@@ -574,7 +397,7 @@
     position: relative;
     border-left: 3px solid var(--border);
     background: var(--bg-code);
-    border-radius: 0 var(--radius) var(--radius) 0;
+    border-radius: 0;
     padding: 0.6rem 1rem 0.6rem 1.1rem;
     margin: 1.25em 0;
   }
@@ -588,7 +411,7 @@
     width: 3px;
     height: 40%;
     background: var(--accent);
-    border-radius: 2px;
+    border-radius: 0;
     min-height: 1.25rem;
   }
 
@@ -617,51 +440,20 @@
      ───────────────────────────────────────────────────────────────── */
   .markdown-body .cursor-line-active {
     position: relative;
-
-    /* Neutral-warm wash — not purple soup */
-    background: linear-gradient(
-      95deg,
-      color-mix(in srgb, var(--accent) 14%, transparent) 0%,
-      color-mix(in srgb, var(--accent) 5%, transparent) 38%,
-      transparent 82%
-    );
-
-    /* Parallelogram border-left: the bottom of the bar is "shorter" via
-       a box-shadow trick so it reads as slanted */
-    border-left: 3px solid var(--accent);
-    border-radius: 0 4px 4px 0;
-    padding-left: calc(1em - 3px);
-
-    /* Outer glow */
-    box-shadow:
-      inset 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent),
-      0 2px 16px color-mix(in srgb, var(--accent) 10%, transparent);
-
-    /* Entry */
-    animation: cline-enter 190ms cubic-bezier(0.22, 1, 0.36, 1) both;
-
-    /* Settle-transition for rapid cursor moves */
-    transition:
-      background 90ms ease,
-      box-shadow 90ms ease,
-      border-color 90ms ease;
-  }
-
-  /* Sweep shimmer: travels left→right once on entry */
-  .markdown-body .cursor-line-active::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    overflow: hidden;
-    border-radius: inherit;
     background: linear-gradient(
       90deg,
-      transparent 0%,
-      color-mix(in srgb, var(--accent) 18%, transparent) 48%,
+      color-mix(in srgb, var(--accent) 20%, transparent) 0%,
+      color-mix(in srgb, var(--accent) 10%, transparent) 45%,
       transparent 100%
     );
-    animation: cline-shimmer 520ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    border-left: 2px solid color-mix(in srgb, var(--accent) 76%, white 8%);
+    border-radius: 0;
+    padding-left: calc(1em - 2px);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent);
+    transition:
+      background-color 120ms ease-out,
+      box-shadow 120ms ease-out,
+      border-color 120ms ease-out;
   }
 
   /* Footnotes */
@@ -690,40 +482,32 @@
 
 .hljs-comment,
 .hljs-meta {
-  color: #999;
+  color: #8a8f9a;
   font-style: italic;
 }
 .hljs-keyword,
 .hljs-selector-tag,
 .hljs-literal,
 .hljs-doctag,
-.hljs-title.function_ {
-  color: #7c3aed;
-} /* purple — accent only on keywords */
-.hljs-string,
-.hljs-attr,
-.hljs-addition {
-  color: #0e7490;
-}
-.hljs-number,
-.hljs-attribute {
-  color: #b45309;
-}
+.hljs-title.function_,
 .hljs-type,
 .hljs-class .hljs-title,
 .hljs-built_in {
-  color: #9333ea;
+  color: #5c6f93;
 }
+.hljs-string,
+.hljs-attr,
+.hljs-addition,
+.hljs-number,
+.hljs-attribute,
 .hljs-section,
 .hljs-name,
 .hljs-selector-id,
-.hljs-selector-class {
-  color: #047857;
-}
+.hljs-selector-class,
 .hljs-variable,
 .hljs-template-variable,
 .hljs-deletion {
-  color: #be123c;
+  color: #355f80;
 }
 .hljs-emphasis {
   font-style: italic;
@@ -743,41 +527,33 @@
 
 [data-theme="dark"] .hljs-comment,
 [data-theme="dark"] .hljs-meta {
-  color: #636380;
+  color: #66708a;
   font-style: italic;
 }
 [data-theme="dark"] .hljs-keyword,
 [data-theme="dark"] .hljs-selector-tag,
 [data-theme="dark"] .hljs-literal,
 [data-theme="dark"] .hljs-doctag,
-[data-theme="dark"] .hljs-title.function_ {
-  color: #c9a0ff;
-} /* muted lavender */
-[data-theme="dark"] .hljs-string,
-[data-theme="dark"] .hljs-attr,
-[data-theme="dark"] .hljs-addition {
-  color: #6fcfd8;
-} /* muted cyan */
-[data-theme="dark"] .hljs-number,
-[data-theme="dark"] .hljs-attribute {
-  color: #d4956a;
-} /* warm amber */
+[data-theme="dark"] .hljs-title.function_,
 [data-theme="dark"] .hljs-type,
 [data-theme="dark"] .hljs-class .hljs-title,
 [data-theme="dark"] .hljs-built_in {
-  color: #d8b4fe;
-} /* soft purple */
+  color: #a9badf;
+}
+[data-theme="dark"] .hljs-string,
+[data-theme="dark"] .hljs-attr,
+[data-theme="dark"] .hljs-addition,
+[data-theme="dark"] .hljs-number,
+[data-theme="dark"] .hljs-attribute,
 [data-theme="dark"] .hljs-section,
 [data-theme="dark"] .hljs-name,
 [data-theme="dark"] .hljs-selector-id,
-[data-theme="dark"] .hljs-selector-class {
-  color: #6dbf9e;
-} /* muted emerald */
+[data-theme="dark"] .hljs-selector-class,
 [data-theme="dark"] .hljs-variable,
 [data-theme="dark"] .hljs-template-variable,
 [data-theme="dark"] .hljs-deletion {
-  color: #e07070;
-} /* muted red */
+  color: #86a0c8;
+}
 [data-theme="dark"] .hljs-emphasis {
   font-style: italic;
 }
@@ -785,45 +561,15 @@
   font-weight: 660;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
-   KEYFRAMES
-   ═══════════════════════════════════════════════════════════════════ */
-@keyframes cline-enter {
-  from {
-    opacity: 0;
-    transform: translateX(-4px);
-    border-left-color: transparent;
-  }
-  55% {
-    border-left-color: var(--accent);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-    border-left-color: var(--accent);
-  }
-}
-
-@keyframes cline-shimmer {
-  0% {
-    transform: translateX(-110%);
-    opacity: 0.9;
-  }
-  100% {
-    transform: translateX(210%);
-    opacity: 0;
-  }
-}
-
 @keyframes dot-pulse {
   0%,
   100% {
-    opacity: 1;
+    opacity: 0.86;
     transform: scale(1);
   }
   50% {
-    opacity: 0.4;
-    transform: scale(0.78);
+    opacity: 0.55;
+    transform: scale(0.92);
   }
 }
 
@@ -854,16 +600,11 @@
   html {
     scroll-behavior: auto;
   }
-  body,
-  .toggle-thumb {
+  body {
     transition: none !important;
   }
   .markdown-body .cursor-line-active,
   .markdown-body .cursor-line-active::after {
-    animation: none !important;
-  }
-  .live-dot,
-  .conn-dot {
     animation: none !important;
   }
 }

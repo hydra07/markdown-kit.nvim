@@ -2,9 +2,10 @@ import { openBrowser } from "./utils/browser";
 import { renderMarkdown } from "./utils/markdown";
 import type { IncomingMessage, PreviewState, WS } from "./types/types";
 
-const SERVICE_PORT = Number(Bun.env.MK_PORT ?? 3030);
-const WEB_PORT = Number(Bun.env.MK_WEB_PORT ?? 5173);
+const SERVICE_PORT = Number(Bun.env.MK_PORT ?? 35831);
+const WEB_PORT = Number(Bun.env.MK_WEB_PORT ?? 35832);
 const HOST = "127.0.0.1";
+const BROWSER_OPEN_DELAY_MS = Math.max(0, Number(Bun.env.MK_BROWSER_OPEN_DELAY_MS ?? 0));
 
 const current: PreviewState = {
   markdown: "",
@@ -52,12 +53,15 @@ function cancelAutoOpen(): void {
 function handleBrowserOpen(): void {
   if (clients.size > 0) return;
   cancelAutoOpen();
-  autoOpenTimer = setTimeout(() => {
+  const open = () => {
     autoOpenTimer = null;
-    if (clients.size === 0) {
-      openBrowser({ host: HOST, webPort: WEB_PORT, servicePort: SERVICE_PORT });
-    }
-  }, 1000);
+    if (clients.size === 0) openBrowser({ host: HOST, webPort: WEB_PORT, servicePort: SERVICE_PORT });
+  };
+  if (BROWSER_OPEN_DELAY_MS === 0) {
+    open();
+    return;
+  }
+  autoOpenTimer = setTimeout(open, BROWSER_OPEN_DELAY_MS);
 }
 
 function applyPreview(payload: Partial<PreviewState>): void {

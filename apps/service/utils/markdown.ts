@@ -34,6 +34,17 @@ function escapeHtml(source: string): string {
     .replaceAll("'", "&#39;");
 }
 
+function renderHighlightedCode(code: string, lang?: string): string {
+  if (lang && hljs.getLanguage(lang)) {
+    try {
+      return hljs.highlight(code, { language: lang }).value;
+    } catch {
+      // fallthrough to escaped output
+    }
+  }
+  return escapeHtml(code);
+}
+
 hljs.registerLanguage("bash", langBash);
 hljs.registerLanguage("c", langC);
 hljs.registerLanguage("cpp", langCpp);
@@ -59,14 +70,7 @@ hljs.registerLanguage("yaml", langYaml);
 const markdownEngine = new MarkdownIt({
   html: true, linkify: true, typographer: true,
   highlight(str, lang) {
-    if (lang && hljs.getLanguage(lang)) {
-      try {
-        return `<pre class="hljs"><code>${hljs.highlight(str, { language: lang }).value}</code></pre>`;
-      } catch {
-        // fallthrough to escaped output
-      }
-    }
-    return `<pre class="hljs"><code>${escapeHtml(str)}</code></pre>`;
+    return `<pre class="hljs"><code>${renderHighlightedCode(str, lang)}</code></pre>`;
   },
 });
 
@@ -87,6 +91,18 @@ markdownEngine.core.ruler.push("source_line_meta", (state) => {
     token.attrSet("data-src-end", String(end));
   }
 });
+
+markdownEngine.renderer.rules.fence = (tokens, idx, options) => {
+  const token = tokens[idx];
+  if (!token) return "";
+  const info = (token.info ?? "").trim();
+  const lang = info.split(/\s+/g)[0] || "";
+  const attrs = options?.xhtmlOut ? " /" : "";
+  const dataStart = token.attrGet("data-src-start");
+  const dataEnd = token.attrGet("data-src-end");
+  const dataAttrs = dataStart && dataEnd ? ` data-src-start="${dataStart}" data-src-end="${dataEnd}"` : "";
+  return `<pre class="hljs"${dataAttrs}><code>${renderHighlightedCode(token.content, lang)}</code></pre>${attrs}\n`;
+};
 
 export function renderMarkdown(markdown: string): string {
   return markdownEngine.render(markdown);
