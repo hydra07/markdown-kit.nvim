@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-assets:
     name: Build ${{ matrix.target }}
@@ -43,30 +47,43 @@ jobs:
       - name: Build client and core
         run: mise run build
 
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Prepare release bundle (unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME}"
+          VERSION="${{ steps.version.outputs.value }}"
           OUT_DIR="dist/release/markdown-kit-nvim-${VERSION}-${{ matrix.target }}"
+
           mkdir -p "${OUT_DIR}/nvim/bin"
-          cp apps/core/target/release/mk-core "${OUT_DIR}/nvim/bin/"
           cp -R nvim/. "${OUT_DIR}/nvim/"
+          cp apps/core/target/release/mk-core "${OUT_DIR}/nvim/bin/"
           cp README.md "${OUT_DIR}/README.md"
+
           tar -C dist/release -czf "dist/release/markdown-kit-nvim-${VERSION}-${{ matrix.target }}.tar.gz" "markdown-kit-nvim-${VERSION}-${{ matrix.target }}"
 
       - name: Prepare release bundle (windows)
         if: runner.os == 'Windows'
         shell: powershell
         run: |
-          $version = "${env:GITHUB_REF_NAME}"
+          $version = "${{ steps.version.outputs.value }}"
           $outDir = "dist/release/markdown-kit-nvim-$version-${{ matrix.target }}"
+
           New-Item -ItemType Directory -Force -Path "$outDir/nvim/bin" | Out-Null
-          New-Item -ItemType Directory -Force -Path "$outDir/nvim" | Out-Null
-          Copy-Item "apps/core/target/release/mk-core.exe" "$outDir/nvim/bin/mk-core.exe" -Force
           Copy-Item "nvim/*" "$outDir/nvim" -Recurse -Force
+          Copy-Item "apps/core/target/release/mk-core.exe" "$outDir/nvim/bin/mk-core.exe" -Force
           Copy-Item "README.md" "$outDir/README.md" -Force
+
           Compress-Archive -Path "$outDir/*" -DestinationPath "dist/release/markdown-kit-nvim-$version-${{ matrix.target }}.zip" -Force
 
       - name: Publish runtime branch (unix)
@@ -76,14 +93,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME}"
+          VERSION="${{ steps.version.outputs.value }}"
           BRANCH="runtime-${{ matrix.target }}"
           RUNTIME_DIR="dist/runtime-${{ matrix.target }}"
 
           rm -rf "${RUNTIME_DIR}"
-          mkdir -p "${RUNTIME_DIR}/plugin" "${RUNTIME_DIR}/lua" "${RUNTIME_DIR}/nvim/bin"
-          cp -R nvim/plugin/. "${RUNTIME_DIR}/plugin/"
-          cp -R nvim/lua/. "${RUNTIME_DIR}/lua/"
+          mkdir -p "${RUNTIME_DIR}/nvim/bin"
+          cp -R nvim/. "${RUNTIME_DIR}/nvim/"
           cp apps/core/target/release/mk-core "${RUNTIME_DIR}/nvim/bin/"
           cp README.md "${RUNTIME_DIR}/README.md"
 
@@ -102,17 +118,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $version = "${env:GITHUB_REF_NAME}"
+          $version = "${{ steps.version.outputs.value }}"
           $branch = "runtime-${{ matrix.target }}"
           $runtimeDir = "dist/runtime-${{ matrix.target }}"
 
           if (Test-Path $runtimeDir) { Remove-Item -Recurse -Force $runtimeDir }
-          New-Item -ItemType Directory -Force -Path "$runtimeDir/plugin" | Out-Null
-          New-Item -ItemType Directory -Force -Path "$runtimeDir/lua" | Out-Null
           New-Item -ItemType Directory -Force -Path "$runtimeDir/nvim/bin" | Out-Null
-
-          Copy-Item "nvim/plugin/*" "$runtimeDir/plugin" -Recurse -Force
-          Copy-Item "nvim/lua/*" "$runtimeDir/lua" -Recurse -Force
+          Copy-Item "nvim/*" "$runtimeDir/nvim" -Recurse -Force
           Copy-Item "apps/core/target/release/mk-core.exe" "$runtimeDir/nvim/bin/mk-core.exe" -Force
           Copy-Item "README.md" "$runtimeDir/README.md" -Force
 
@@ -135,6 +147,7 @@ jobs:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
     needs: build-assets
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
