@@ -15,7 +15,7 @@ use axum::{Router, routing::get};
 use mk_core::{markdown::render, server};
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc, time::Duration};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Mutex};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -297,7 +297,10 @@ async fn main() -> Result<()> {
     }
 
     // ── Axum server (identical structure to main.rs) ────────────────────────
-    let state = Arc::new(server::AppState { tx: tx.clone() });
+    let state = Arc::new(server::AppState {
+        tx: tx.clone(),
+        last_html: Mutex::new(Some(preview_json.clone())),
+    });
 
     let app = Router::new()
         .route("/ws", get(server::ws_handler))
@@ -309,7 +312,7 @@ async fn main() -> Result<()> {
     info!("Open your browser at: http://{addr}");
 
     // ── Auto-open browser ───────────────────────────────────────────────────
-    let url = format!("http://{addr}/?ws=ws://{addr}/ws");
+    let url = format!("http://{addr}/");
     tokio::spawn(async move {
         // Give the server 300 ms to bind before opening.
         tokio::time::sleep(Duration::from_millis(300)).await;

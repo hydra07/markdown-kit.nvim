@@ -31,7 +31,7 @@ run = "bun run --cwd apps/client dev"
 
 [tasks."client:typecheck"]
 description = "Type-check client"
-run = "tsc -b --pretty false -p apps/client/tsconfig.app.json"
+run = "tsc --pretty false --noEmit -p apps/client/tsconfig.app.json"
 
 [tasks."client:build"]
 description = "Build client assets (embedded by core)"
@@ -63,7 +63,7 @@ run = "cargo build --release --manifest-path apps/core/Cargo.toml"
 
 [tasks.check]
 description = "CI checks (typecheck + rust check + rust tests)"
-depends = ["client:typecheck", "core:check", "core:test"]
+run = "mise run client:typecheck && mise run core:check && mise run core:test"
 
 [tasks.build]
 alias = "b"
@@ -77,3 +77,7 @@ depends = ["setup", "check", "build"]
 [tasks.ci]
 description = "CI pipeline alias (setup -> check -> build)"
 depends = ["setup", "check", "build"]
+
+[tasks.precommit]
+description = "Local pre-commit checks (fast fail before commit)"
+depends = ["client:typecheck", "core:check", "core:test"]
