@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  useRef,
+  useLayoutEffect,
+} from "react";
+import morphdom from "morphdom";
+import mermaid from "mermaid";
+import "katex/dist/katex.min.css";
+import { renderMarkdown } from "./utils/markdown";
 import { ConnBadge } from "./components/ui/ConnBadge";
 import { FollowCursorToggle } from "./components/ui/FollowCursorToggle";
 import { LiveBadge } from "./components/ui/LiveBadge";
@@ -6,12 +16,15 @@ import { ThemeToggle } from "./components/ui/ThemeToggle";
 import { IconFile } from "./components/ui/icons/IconFile";
 import { useDocumentTitle } from "./hooks/useDocumentTitle";
 import { usePreviewSocket } from "./hooks/usePreviewSocket";
-import { usePreviewCurrentBlockHighlight, usePreviewFollowScroll } from "./hooks/usePreviewViewportSync";
+import {
+  usePreviewCurrentBlockHighlight,
+  usePreviewFollowScroll,
+} from "./hooks/usePreviewViewportSync";
 import type { ConnStatus, Theme } from "./types/types";
 import "./App.css";
 
 /* ─── WS URL ─────────────────────────────────────────────────────── */
-const params     = new URLSearchParams(window.location.search);
+const params = new URLSearchParams(window.location.search);
 const wsFromQuery = params.get("ws");
 const wsUrl =
   wsFromQuery && wsFromQuery !== ""
@@ -19,10 +32,11 @@ const wsUrl =
     : `ws://127.0.0.1:${Number(import.meta.env.VITE_MK_PORT ?? 35831)}`;
 
 export default function App() {
-  const [status,   setStatus]   = useState<ConnStatus>("connecting");
-  const [html,     setHtml]     = useState("");
+  const [status, setStatus] = useState<ConnStatus>("connecting");
+  const [markdown, setMarkdown] = useState("");
+  const contentRef = useRef<HTMLElement>(null);
   const [fileName, setFileName] = useState("");
-  const [theme,    setTheme]    = useState<Theme>("dark");
+  const [theme, setTheme] = useState<Theme>("dark");
   const [followCursor, setFollowCursor] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem("mk_follow_cursor") !== "0";
@@ -41,13 +55,67 @@ export default function App() {
     }
   }, [followCursor]);
 
-  const { setCursorForHighlight, syncHighlight } = usePreviewCurrentBlockHighlight(html);
-  const { setCursorForFollow, syncFollowScroll } = usePreviewFollowScroll(html, followCursor);
+  useEffect(() => {
+    mermaid.initialize({ startOnLoad: false, theme: "dark" });
+  }, []);
 
-  const setCursor = useCallback((cursorLine?: number, lineCount?: number) => {
-    setCursorForHighlight(cursorLine, lineCount);
-    setCursorForFollow(cursorLine, lineCount);
-  }, [setCursorForFollow, setCursorForHighlight]);
+  useLayoutEffect(() => {
+    if (!contentRef.current) return;
+    const newHtml = renderMarkdown(markdown);
+    const tempDiv = document.createElement("section");
+    tempDiv.innerHTML = newHtml;
+
+    // We wrap morphdom so that only the children are diffed and swapped.
+    // This maintains the `contentRef.current` node itself and updates its children.
+    morphdom(contentRef.current, tempDiv, {
+      childrenOnly: true,
+      onBeforeElUpdated: (fromEl, toEl) => {
+        // Keep active cursor lines intact during diff
+        if (fromEl.classList.contains("cursor-line-active")) {
+          toEl.classList.add("cursor-line-active");
+        }
+        return true;
+      },
+    });
+
+    const mermaidNodes = Array.from(
+      contentRef.current.querySelectorAll(".mermaid"),
+    ) as HTMLElement[];
+
+    if (mermaidNodes.length > 0) {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: theme === "dark" ? "dark" : "default",
+      });
+
+      mermaidNodes.forEach((node) => {
+        // Only run on nodes that haven't been processed in this cycle
+        if (!node.getAttribute("data-processed")) {
+          mermaid
+            .run({
+              nodes: [node],
+              suppressErrors: true,
+            })
+            .catch(() => {});
+        }
+      });
+    }
+  }, [markdown, theme]);
+
+  const { setCursorForHighlight, syncHighlight } =
+    usePreviewCurrentBlockHighlight(markdown);
+  const { setCursorForFollow, syncFollowScroll } = usePreviewFollowScroll(
+    markdown,
+    followCursor,
+  );
+
+  const setCursor = useCallback(
+    (cursorLine?: number, lineCount?: number) => {
+      setCursorForHighlight(cursorLine, lineCount);
+      setCursorForFollow(cursorLine, lineCount);
+    },
+    [setCursorForFollow, setCursorForHighlight],
+  );
 
   const syncViewport = useCallback(() => {
     syncHighlight();
@@ -61,10 +129,10 @@ export default function App() {
   usePreviewSocket({
     wsUrl,
     setStatus,
-    setHtml,
+    setMarkdown,
     setFileName,
     setTheme,
-    setCursor,    // ← passed through untouched
+    setCursor, // ← passed through untouched
     syncViewport, // ← passed through untouched
   });
 
@@ -85,22 +153,23 @@ export default function App() {
           </div>
 
           {status === "connected" && <LiveBadge />}
-
-          <FollowCursorToggle enabled={followCursor} onToggle={() => setFollowCursor((v) => !v)} />
+          <FollowCursorToggle
+            enabled={followCursor}
+            onToggle={() => setFollowCursor((v) => !v)}
+          />
 
           <ThemeToggle
             theme={theme}
-            onToggle={() => setTheme(t => t === "dark" ? "light" : "dark")}
+            onToggle={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
           />
         </header>
 
         <section
+          ref={contentRef}
           className="app-content markdown-body prose max-w-none flex-1 border border-t-0 border-transparent bg-(--glass) px-6 py-7 text-[0.9375rem] leading-[1.78] text-(--fg) shadow-(--shadow-md) backdrop-blur-md transition-[background-color,border-color,color] duration-300 hover:border-(--border-soft)"
-          dangerouslySetInnerHTML={{ __html: html }}
         />
 
         {status !== "connected" && <ConnBadge wsUrl={wsUrl} />}
-
       </div>
     </div>
   );

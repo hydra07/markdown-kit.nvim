@@ -3,7 +3,6 @@ export type IncomingType = "preview:update" | "cursor:update" | "browser:open" |
 
 export interface PreviewState {
   markdown: string;
-  html: string;
   fileName: string;
   theme: Theme;
   contentTick: number;

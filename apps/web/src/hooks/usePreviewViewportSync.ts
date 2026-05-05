@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { toInt } from "../utils/number";
 import { easeScroll } from "../utils/scroll";
 
-function useSourceBlocks(html: string) {
+function useSourceBlocks(markdown: string) {
   const blocksRef = useRef<HTMLElement[]>([]);
   const refreshBlocks = useCallback(() => {
     const root = document.querySelector(".markdown-body");
@@ -15,7 +15,7 @@ function useSourceBlocks(html: string) {
 
   useLayoutEffect(() => {
     refreshBlocks();
-  }, [html, refreshBlocks]);
+  }, [markdown, refreshBlocks]);
 
   const findBestBlock = useCallback((line: number) => {
     let nodes = blocksRef.current;
@@ -54,13 +54,13 @@ function useSourceBlocks(html: string) {
   return { findBestBlock };
 }
 
-export function usePreviewCurrentBlockHighlight(html: string) {
+export function usePreviewCurrentBlockHighlight(markdown: string) {
   const cursorLineRef = useRef(1);
   const lineCountRef = useRef(1);
   const lastSyncedLineRef = useRef<number | null>(null);
   const lastSyncedCountRef = useRef<number | null>(null);
   const activeBlockRef = useRef<HTMLElement | null>(null);
-  const { findBestBlock } = useSourceBlocks(html);
+  const { findBestBlock } = useSourceBlocks(markdown);
 
   const setCursorForHighlight = useCallback((cursorLine?: number, lineCount?: number) => {
     if (typeof cursorLine === "number") cursorLineRef.current = cursorLine;
@@ -89,7 +89,7 @@ export function usePreviewCurrentBlockHighlight(html: string) {
 
   useLayoutEffect(() => {
     requestAnimationFrame(() => syncHighlight(true));
-  }, [html, syncHighlight]);
+  }, [markdown, syncHighlight]);
 
   useEffect(() => () => {
     if (activeBlockRef.current) activeBlockRef.current.classList.remove("cursor-line-active");
@@ -98,12 +98,12 @@ export function usePreviewCurrentBlockHighlight(html: string) {
   return { setCursorForHighlight, syncHighlight };
 }
 
-export function usePreviewFollowScroll(html: string, followCursor: boolean) {
+export function usePreviewFollowScroll(markdown: string, followCursor: boolean) {
   const cursorLineRef = useRef(1);
   const lineCountRef = useRef(1);
   const scrollRafRef = useRef<number | null>(null);
   const followCursorRef = useRef(followCursor);
-  const { findBestBlock } = useSourceBlocks(html);
+  const { findBestBlock } = useSourceBlocks(markdown);
 
   useEffect(() => {
     followCursorRef.current = followCursor;
@@ -158,7 +158,7 @@ export function usePreviewFollowScroll(html: string, followCursor: boolean) {
   useLayoutEffect(() => {
     if (!followCursor) return;
     requestAnimationFrame(syncFollowScroll);
-  }, [followCursor, html, syncFollowScroll]);
+  }, [followCursor, markdown, syncFollowScroll]);
 
   useEffect(() => {
     if (followCursor) return;

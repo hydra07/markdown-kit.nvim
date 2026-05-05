@@ -1,15 +1,12 @@
 import { openBrowser } from "./utils/browser";
-import { renderMarkdown } from "./utils/markdown";
 import type { IncomingMessage, PreviewState, WS } from "./types/types";
-
+import { join } from "path";
 const SERVICE_PORT = Number(Bun.env.MK_PORT ?? 35831);
-const WEB_PORT = Number(Bun.env.MK_WEB_PORT ?? 35832);
 const HOST = "127.0.0.1";
 const BROWSER_OPEN_DELAY_MS = Math.max(0, Number(Bun.env.MK_BROWSER_OPEN_DELAY_MS ?? 0));
 
 const current: PreviewState = {
   markdown: "",
-  html: "",
   fileName: "",
   theme: "dark",
   contentTick: 0,
@@ -55,7 +52,7 @@ function handleBrowserOpen(): void {
   cancelAutoOpen();
   const open = () => {
     autoOpenTimer = null;
-    if (clients.size === 0) openBrowser({ host: HOST, webPort: WEB_PORT, servicePort: SERVICE_PORT });
+    if (clients.size === 0) openBrowser({ host: HOST, webPort: SERVICE_PORT, servicePort: SERVICE_PORT });
   };
   if (BROWSER_OPEN_DELAY_MS === 0) {
     open();
@@ -67,7 +64,6 @@ function handleBrowserOpen(): void {
 function applyPreview(payload: Partial<PreviewState>): void {
   if (typeof payload.markdown === "string") {
     current.markdown = payload.markdown;
-    current.html = renderMarkdown(payload.markdown);
   }
   if (typeof payload.fileName === "string") current.fileName = payload.fileName;
   if (payload.theme === "dark" || payload.theme === "light") current.theme = payload.theme;
@@ -127,6 +123,7 @@ async function readStdin(): Promise<void> {
   }
 
   if (buffer.trim() !== "") applyMessage(buffer);
+  process.exit(0);
 }
 
 Bun.serve({
@@ -134,7 +131,18 @@ Bun.serve({
   port: SERVICE_PORT,
   fetch(req, server) {
     if (server.upgrade(req)) return undefined as unknown as Response;
-    return new Response("markdown-kit service", { status: 200 });
+    
+    // Serve static files from web/dist
+    const url = new URL(req.url);
+    let pathname = url.pathname;
+    if (pathname === "/") pathname = "/index.html";
+    
+    // Resolve relative to the current file (either src/ or dist/)
+    const distPath = join(import.meta.dir, "../../web/dist");
+    const filePath = join(distPath, pathname);
+    
+    const file = Bun.file(filePath);
+    return new Response(file);
   },
   websocket: {
     open(ws) {

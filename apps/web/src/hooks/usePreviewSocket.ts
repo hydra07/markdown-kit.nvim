@@ -4,7 +4,7 @@ import type { ConnStatus, CursorUpdatePayload, PreviewUpdatePayload, Theme } fro
 type UsePreviewSocketParams = {
   wsUrl: string;
   setStatus: React.Dispatch<React.SetStateAction<ConnStatus>>;
-  setHtml: React.Dispatch<React.SetStateAction<string>>;
+  setMarkdown: React.Dispatch<React.SetStateAction<string>>;
   setFileName: React.Dispatch<React.SetStateAction<string>>;
   setTheme: React.Dispatch<React.SetStateAction<Theme>>;
   setCursor: (cursorLine?: number, lineCount?: number) => void;
@@ -14,14 +14,14 @@ type UsePreviewSocketParams = {
 export function usePreviewSocket({
   wsUrl,
   setStatus,
-  setHtml,
+  setMarkdown,
   setFileName,
   setTheme,
   setCursor,
   syncViewport,
 }: UsePreviewSocketParams) {
   const lastTickRef = useRef(-1);
-  const lastHtmlRef = useRef("");
+  const lastMarkdownRef = useRef("");
   const rafRef = useRef<number | null>(null);
   const syncViewportRef = useRef(syncViewport);
 
@@ -74,17 +74,17 @@ export function usePreviewSocket({
           const payload = data.payload as PreviewUpdatePayload | undefined;
           if (!payload) return;
 
-          const htmlFromService = typeof payload.html === "string" ? payload.html : "";
+          const markdownFromService = typeof payload.markdown === "string" ? payload.markdown : "";
           const tick = typeof payload.contentTick === "number" ? payload.contentTick : 0;
 
           if (typeof payload.fileName === "string") setFileName(payload.fileName);
           setCursor(payload.cursorLine, payload.lineCount);
           setTheme(payload.theme === "light" ? "light" : "dark");
 
-          if (tick !== lastTickRef.current || htmlFromService !== lastHtmlRef.current) {
+          if (tick !== lastTickRef.current || markdownFromService !== lastMarkdownRef.current) {
             lastTickRef.current = tick;
-            lastHtmlRef.current = htmlFromService;
-            setHtml(htmlFromService);
+            lastMarkdownRef.current = markdownFromService;
+            setMarkdown(markdownFromService);
           } else {
             scheduleViewportSync();
           }
@@ -104,5 +104,5 @@ export function usePreviewSocket({
       rafRef.current = null;
       socket?.close();
     };
-  }, [setCursor, setFileName, setHtml, setStatus, setTheme, wsUrl]);
+  }, [setCursor, setFileName, setMarkdown, setStatus, setTheme, wsUrl]);
 }

@@ -7,7 +7,7 @@ export interface CursorUpdatePayload {
 }
 
 export interface PreviewUpdatePayload extends CursorUpdatePayload {
-  html?: string;
+  markdown?: string;
   fileName?: string;
   theme?: Theme;
   contentTick?: number;
