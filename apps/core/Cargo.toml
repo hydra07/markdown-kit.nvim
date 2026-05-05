@@ -1,0 +1,47 @@
+[package]
+name = "mk-core"
+version = "0.1.0"
+edition = "2024"
+description = "markdown-kit.nvim — Rust core server (WebSocket relay + Markdown rendering)"
+
+[[bin]]
+name = "mk-core"
+path = "src/main.rs"
+
+[dependencies]
+# HTTP + WebSocket server
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.27"
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Markdown parsing
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+
+# Syntax highlighting (regex-fancy = pure-Rust regex engine, no C deps)
+syntect = { version = "5", default-features = false, features = ["default-syntaxes", "default-themes", "html", "regex-fancy"] }
+
+# Embed static files (Preact dist) into binary
+rust-embed = { version = "8", features = ["interpolate-folder-path"] }
+axum-embed = "0.1"
+
+# Mermaid rendering (native Rust, no browser needed)
+# TODO: pin once mermaid-rs-renderer is stable
+# mermaid-rs-renderer = "0.1"
+
+# Utilities
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+smallvec = "1.15.1"
+mermaid-rs-renderer = "0.2.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-assets:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+            archive_ext: tar.gz
+          - os: macos-latest
+            target: macos-x64
+            archive_ext: tar.gz
+          - os: windows-latest
+            target: windows-x64
+            archive_ext: zip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup mise
+        uses: jdx/mise-action@v2
+
+      - name: Install toolchains
+        run: mise install
+
+      - name: Build client and core
+        run: mise run build
+
+      - name: Prepare release bundle (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME}"
+          OUT_DIR="dist/release/markdown-kit-nvim-${VERSION}-${{ matrix.target }}"
+          mkdir -p "${OUT_DIR}/bin" "${OUT_DIR}/nvim"
+          cp apps/core/target/release/mk-core "${OUT_DIR}/bin/"
+          cp -R nvim/. "${OUT_DIR}/nvim/"
+          cp README.md "${OUT_DIR}/README.md"
+          tar -C dist/release -czf "dist/release/markdown-kit-nvim-${VERSION}-${{ matrix.target }}.tar.gz" "markdown-kit-nvim-${VERSION}-${{ matrix.target }}"
+
+      - name: Prepare release bundle (windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $version = "${env:GITHUB_REF_NAME}"
+          $outDir = "dist/release/markdown-kit-nvim-$version-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path "$outDir/bin" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$outDir/nvim" | Out-Null
+          Copy-Item "apps/core/target/release/mk-core.exe" "$outDir/bin/mk-core.exe" -Force
+          Copy-Item "nvim/*" "$outDir/nvim" -Recurse -Force
+          Copy-Item "README.md" "$outDir/README.md" -Force
+          Compress-Archive -Path "$outDir/*" -DestinationPath "dist/release/markdown-kit-nvim-$version-${{ matrix.target }}.zip" -Force
+
+      - name: Upload assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/release/*.${{ matrix.archive_ext }}
+
+  publish:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: build-assets
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/release
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/release/**/*.*
+          generate_release_notes: true

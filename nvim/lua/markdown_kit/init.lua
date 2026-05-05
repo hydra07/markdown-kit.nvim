@@ -3,531 +3,267 @@ local M = {}
 -- ─── State ────────────────────────────────────────────────────────────────────
 
 local state = {
-	service_job = nil,
-	web_job = nil,
-	service_port = nil,
-	web_port = nil,
-	content_tick = 0,
-	content_timer = nil,
-	line_count = nil,
-	cursor_timer = nil,
-	pending_cursor = nil,
-	last_sent_cursor = nil,
-	preview_opened = false,
+  job     = nil,
+  port    = nil,
+  ready   = false,   -- true sau khi đọc được "mk-core:ready" từ stdout
+  bufnr   = nil,
 }
 
 -- ─── Config ───────────────────────────────────────────────────────────────────
 
-local project_root = "D:/dev/markdown-kit.nvim/"
-local host = "127.0.0.1"
-local ports = {
-	service = 35831,
-	web = 35832,
-}
+local current_file = debug.getinfo(1, "S").source:sub(2)
+local project_root = vim.fn.fnamemodify(current_file, ":p:h:h:h:h") .. "/"
+
+if vim.g.markdown_kit_root and vim.g.markdown_kit_root ~= "" then
+  project_root = vim.g.markdown_kit_root
+end
+
+local host   = "127.0.0.1"
 local augroup = vim.api.nvim_create_augroup("MarkdownKitSync", { clear = true })
 
 -- ─── Helpers ──────────────────────────────────────────────────────────────────
 
 local function notify(msg, level)
-	vim.notify("[markdown-kit] " .. msg, level or vim.log.levels.INFO)
+  vim.notify("[markdown-kit] " .. msg, level or vim.log.levels.INFO)
 end
 
-local function run_bun_task(args, extra_env)
-	local env = vim.tbl_extend("force", vim.fn.environ(), extra_env or {})
-	local result = vim.system(args, {
-		cwd = project_root,
-		env = env,
-		text = true,
-	}):wait()
-	if result.code ~= 0 then
-		local stderr = result.stderr or ""
-		local stdout = result.stdout or ""
-		notify(("Command failed:\n%s%s"):format(stdout, stderr), vim.log.levels.ERROR)
-		return false
-	end
-	return true
-end
-
-local function is_running(job)
-	return job ~= nil and vim.fn.jobwait({ job }, 0)[1] == -1
-end
-
-local function get_theme()
-	local theme = vim.g.markdown_kit_theme or vim.g.mkdp_theme or "dark"
-	return (theme == "light") and "light" or "dark"
-end
-
-local function get_cursor_throttle_ms()
-	local v = tonumber(vim.g.markdown_kit_cursor_throttle_ms)
-	if v and v >= 0 then
-		return math.floor(v)
-	end
-	return 16
-end
-
-local function get_content_debounce_ms()
-	local v = tonumber(vim.g.markdown_kit_content_debounce_ms)
-	if v and v >= 0 then
-		return math.floor(v)
-	end
-	return 80
-end
-
-local function get_insert_content_debounce_ms()
-	local v = tonumber(vim.g.markdown_kit_insert_content_debounce_ms)
-	if v and v >= 0 then
-		return math.floor(v)
-	end
-	return 35
-end
-
-local function get_web_port()
-	local p = tonumber(vim.g.markdown_kit_web_port)
-	return (p and p > 0) and p or ports.web
-end
-
-local function is_valid_port(p)
-	return p and p >= 1 and p <= 65535
+local function is_running()
+  return state.job ~= nil and vim.fn.jobwait({ state.job }, 0)[1] == -1
 end
 
 local function file_exists(path)
-	return vim.uv.fs_stat(path) ~= nil
+  return vim.uv.fs_stat(path) ~= nil
 end
 
-local function is_port_available(port)
-	local tcp = vim.uv.new_tcp()
-	if not tcp then
-		return false
-	end
-	local ok = pcall(function()
-		tcp:bind(host, port)
-	end)
-	tcp:close()
-	return ok
+local function mtime_ns(path)
+  local stat = vim.uv.fs_stat(path)
+  if not stat or not stat.mtime then return nil end
+  local sec = stat.mtime.sec or 0
+  local nsec = stat.mtime.nsec or 0
+  return sec * 1000000000 + nsec
 end
 
-local function get_preferred_service_port()
-	local p = tonumber(vim.g.markdown_kit_port or vim.g.mkdp_port)
-	if p and p > 0 then
-		return math.floor(p)
-	end
-	return ports.service
+local function is_binary_stale(bin)
+  local bin_mtime = mtime_ns(bin)
+  if not bin_mtime then return true end
+
+  -- mk-core embeds client assets at compile time via rust-embed.
+  -- Rebuild when web assets or core sources are newer than the binary.
+  local watch_files = {
+    project_root .. "apps/client/dist/index.html",
+    project_root .. "apps/core/src/server.rs",
+    project_root .. "apps/core/src/markdown.rs",
+  }
+
+  for _, path in ipairs(watch_files) do
+    local changed_at = mtime_ns(path)
+    if changed_at and changed_at > bin_mtime then
+      return true
+    end
+  end
+
+  return false
 end
 
--- ─── IPC ──────────────────────────────────────────────────────────────────────
+local function is_port_free(port)
+  local tcp = vim.uv.new_tcp()
+  if not tcp then return false end
+  local ok = pcall(function() tcp:bind(host, port) end)
+  tcp:close()
+  return ok
+end
+
+local function get_port()
+  local p = tonumber(vim.g.markdown_kit_port or vim.g.mkdp_port)
+  if p and p > 0 then return math.floor(p) end
+  return 35831
+end
+
+local function get_theme()
+  local t = vim.g.markdown_kit_theme or vim.g.mkdp_theme or "dark"
+  return (t == "light") and "light" or "dark"
+end
+
+-- ─── IPC — raw send, no debounce (Rust handles that) ─────────────────────────
 
 local function send(payload)
-	if not is_running(state.service_job) then
-		return
-	end
-	vim.fn.chansend(state.service_job, vim.fn.json_encode(payload) .. "\n")
+  if not is_running() then return end
+  vim.fn.chansend(state.job, vim.fn.json_encode(payload) .. "\n")
 end
 
--- ─── Sync helpers ─────────────────────────────────────────────────────────────
+-- ─── Sync ─────────────────────────────────────────────────────────────────────
 
---- Send only cursor position — no markdown, very cheap.
-local function sync_cursor()
-	local cursor = vim.api.nvim_win_get_cursor(0)
-	state.pending_cursor = { cursor[1], cursor[2] }
-
-	-- Coalesce bursts of CursorMoved events into ~1 update per frame.
-	if state.cursor_timer then
-		return
-	end
-
-	local timer = vim.uv.new_timer()
-	if not timer then
-		local lc = state.line_count or vim.api.nvim_buf_line_count(vim.api.nvim_get_current_buf())
-		send({
-			type = "cursor:update",
-			payload = { cursorLine = cursor[1], lineCount = lc },
-		})
-		return
-	end
-
-	state.cursor_timer = timer
-	timer:start(
-		get_cursor_throttle_ms(),
-		0,
-		vim.schedule_wrap(function()
-			if state.cursor_timer then
-				state.cursor_timer:stop()
-				state.cursor_timer:close()
-				state.cursor_timer = nil
-			end
-
-			local pending = state.pending_cursor
-			if not pending then
-				return
-			end
-			local last = state.last_sent_cursor
-			if last and last[1] == pending[1] and last[2] == pending[2] then
-				return
-			end
-
-			state.last_sent_cursor = { pending[1], pending[2] }
-			send({
-				type = "cursor:update",
-				payload = {
-					cursorLine = pending[1],
-					lineCount = state.line_count or vim.api.nvim_buf_line_count(vim.api.nvim_get_current_buf()),
-				},
-			})
-		end)
-	)
-end
-
---- Send full content + metadata.
 local function sync_content()
-	local bufnr = vim.api.nvim_get_current_buf()
-	if not vim.api.nvim_buf_is_valid(bufnr) then
-		return
-	end
-	local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-	local cursor = vim.api.nvim_win_get_cursor(0)
-	state.line_count = #lines
-	state.content_tick = state.content_tick + 1
-	send({
-		type = "preview:update",
-		payload = {
-			bufnr = bufnr,
-			fileName = vim.api.nvim_buf_get_name(bufnr),
-			markdown = table.concat(lines, "\n"),
-			cursorLine = cursor[1],
-			lineCount = state.line_count,
-			theme = get_theme(),
-			contentTick = state.content_tick,
-		},
-	})
+  local bufnr = state.bufnr or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(bufnr) then return end
+  local lines  = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  send({
+    type = "preview:update",
+    payload = {
+      fileName   = vim.api.nvim_buf_get_name(bufnr),
+      markdown   = table.concat(lines, "\n"),
+      cursorLine = cursor[1],
+      lineCount  = #lines,
+      theme      = get_theme(),
+    },
+  })
 end
 
---- Debounced content sync.
-local function schedule_content_sync(delay_ms)
-	if state.content_timer then
-		state.content_timer:stop()
-		state.content_timer:close()
-		state.content_timer = nil
-	end
-	if delay_ms == 0 then
-		sync_content()
-		return
-	end
-	local timer = vim.uv.new_timer()
-	if not timer then
-		sync_content()
-		return
-	end
-	state.content_timer = timer
-	timer:start(
-		delay_ms,
-		0,
-		vim.schedule_wrap(function()
-			if state.content_timer then
-				state.content_timer:stop()
-				state.content_timer:close()
-				state.content_timer = nil
-			end
-			sync_content()
-		end)
-	)
-end
-
--- ─── Browser ──────────────────────────────────────────────────────────────────
-
---- Ask the service to handle browser opening. Falls back to Lua-side open only
---- when the service is not running yet (first launch race).
-local function request_browser_open()
-	if is_running(state.service_job) then
-		send({ type = "browser:open" })
-		return
-	end
-	-- Fallback: direct open (first-launch race condition)
-	local sp = state.service_port or get_preferred_service_port()
-	local wp = state.web_port or get_web_port()
-	local url = ("http://%s:%d/?ws=ws://%s:%d"):format(host, wp, host, sp)
-
-	local browserfunc = vim.g.markdown_kit_browserfunc or vim.g.mkdp_browserfunc or ""
-	if type(browserfunc) == "string" and browserfunc ~= "" and vim.fn.exists("*" .. browserfunc) == 1 then
-		vim.fn[browserfunc](url)
-		return
-	end
-
-	local browser = vim.g.markdown_kit_browser or vim.g.mkdp_browser or ""
-	if type(browser) == "string" and browser ~= "" then
-		vim.fn.jobstart({ browser, url }, { detach = true })
-		return
-	end
-
-	if vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1 then
-		vim.fn.jobstart({ "cmd", "/c", "start", "", url }, { detach = true })
-	elseif vim.fn.has("mac") == 1 or vim.fn.has("macunix") == 1 then
-		vim.fn.jobstart({ "open", url }, { detach = true })
-	else
-		vim.fn.jobstart({ "xdg-open", url }, { detach = true })
-	end
-end
-
---- Poll until the web dev server is accepting TCP connections, then open.
-local function open_preview_when_ready()
-	local retries = 40
-	local interval = 200
-
-	local timer = vim.uv.new_timer()
-	if not timer then
-		request_browser_open()
-		return
-	end
-
-	local function try_open()
-		local tcp = vim.uv.new_tcp()
-		if not tcp then
-			return
-		end
-		local wp = state.web_port or get_web_port()
-		tcp:connect(host, wp, function(err)
-			tcp:close()
-			if not err then
-				timer:stop()
-				timer:close()
-				vim.schedule(request_browser_open)
-				return
-			end
-			retries = retries - 1
-			if retries <= 0 then
-				timer:stop()
-				timer:close()
-				vim.schedule(function()
-					notify(("Web app unreachable on http://%s:%d"):format(host, wp), vim.log.levels.ERROR)
-				end)
-			end
-		end)
-	end
-
-	timer:start(0, interval, vim.schedule_wrap(try_open))
+local function sync_cursor()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local bufnr  = state.bufnr or vim.api.nvim_get_current_buf()
+  send({
+    type = "cursor:update",
+    payload = {
+      cursorLine = cursor[1],
+      lineCount  = vim.api.nvim_buf_line_count(bufnr),
+    },
+  })
 end
 
 -- ─── Autocmds ─────────────────────────────────────────────────────────────────
 
-local function attach_buffer_autocmd(bufnr)
-	vim.api.nvim_clear_autocmds({ group = augroup, buffer = bufnr })
+local function attach_autocmds(bufnr)
+  vim.api.nvim_clear_autocmds({ group = augroup, buffer = bufnr })
 
-	-- Content changed (normal mode): light debounce
-	vim.api.nvim_create_autocmd("TextChanged", {
-		group = augroup,
-		buffer = bufnr,
-		callback = function()
-			schedule_content_sync(get_content_debounce_ms())
-		end,
-	})
+  -- Gửi raw — Rust debounce
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI", "InsertLeave", "BufWritePost" }, {
+    group = augroup, buffer = bufnr,
+    callback = sync_content,
+  })
+  vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
+    group = augroup, buffer = bufnr,
+    callback = sync_cursor,
+  })
+  vim.api.nvim_create_autocmd("BufHidden", {
+    group = augroup, buffer = bufnr,
+    callback = function()
+      if vim.g.markdown_kit_auto_close ~= 0 then M.stop() end
+    end,
+  })
+  vim.api.nvim_create_autocmd("VimLeavePre", {
+    group = augroup,
+    callback = M.stop,
+  })
+end
 
-	-- Content changed (insert mode): lower debounce for "near realtime" typing
-	vim.api.nvim_create_autocmd("TextChangedI", {
-		group = augroup,
-		buffer = bufnr,
-		callback = function()
-			schedule_content_sync(get_insert_content_debounce_ms())
-		end,
-	})
+-- ─── Binary launcher ──────────────────────────────────────────────────────────
 
-	-- Leaving insert: flush immediately so preview catches up
-	vim.api.nvim_create_autocmd("InsertLeave", {
-		group = augroup,
-		buffer = bufnr,
-		callback = function()
-			schedule_content_sync(0)
-		end,
-	})
+local function ensure_binary()
+  local bin = project_root .. "apps/core/target/release/mk-core"
+  if vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1 then
+    bin = bin .. ".exe"
+  end
 
-	-- Save: immediate sync
-	vim.api.nvim_create_autocmd("BufWritePost", {
-		group = augroup,
-		buffer = bufnr,
-		callback = function()
-			schedule_content_sync(0)
-		end,
-	})
+  if file_exists(bin) and not is_binary_stale(bin) then
+    return bin
+  end
 
-	-- Cursor moved: cursor-only update (no markdown payload)
-	vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
-		group = augroup,
-		buffer = bufnr,
-		callback = sync_cursor,
-	})
+  -- Auto-build
+  notify("Building mk-core (binary missing or stale)…")
+  local result = vim.system(
+    { "cargo", "build", "--release", "--manifest-path", project_root .. "apps/core/Cargo.toml" },
+    { cwd = project_root, text = true }
+  ):wait()
 
-	-- Buffer hidden: optionally auto-stop
-	vim.api.nvim_create_autocmd("BufHidden", {
-		group = augroup,
-		buffer = bufnr,
-		callback = function()
-			if vim.g.markdown_kit_auto_close ~= 0 then
-				M.stop()
-			end
-		end,
-	})
-
-	-- Neovim exit: always stop cleanly
-	vim.api.nvim_create_autocmd("VimLeavePre", {
-		group = augroup,
-		callback = M.stop,
-	})
+  if result.code ~= 0 then
+    notify("Build failed:\n" .. (result.stderr or ""), vim.log.levels.ERROR)
+    return nil
+  end
+  return bin
 end
 
 -- ─── Public API ───────────────────────────────────────────────────────────────
 
 function M.start()
-	local bufnr = vim.api.nvim_get_current_buf()
-	state.line_count = vim.api.nvim_buf_line_count(bufnr)
-	local preferred_web_port = get_web_port()
-	local preferred_service_port = get_preferred_service_port()
-	if not is_valid_port(preferred_service_port) then
-		notify(("Invalid service port: %s"):format(tostring(preferred_service_port)), vim.log.levels.ERROR)
-		return
-	end
-	if not is_valid_port(preferred_web_port) then
-		notify(("Invalid web port: %s"):format(tostring(preferred_web_port)), vim.log.levels.ERROR)
-		return
-	end
-	state.service_port = preferred_service_port
-	state.web_port = preferred_web_port
-	if state.service_port == state.web_port then
-		notify("Service port and web port must be different", vim.log.levels.ERROR)
-		return
-	end
+  if is_running() then
+    notify("Already running")
+    return
+  end
 
-	if not is_running(state.service_job) and not is_port_available(state.service_port) then
-		notify(
-			("Service port %d is already in use (set g:markdown_kit_port to change)"):format(state.service_port),
-			vim.log.levels.ERROR
-		)
-		return
-	end
-	if not is_running(state.web_job) and not is_port_available(state.web_port) then
-		notify(
-			("Web port %d is already in use (set g:markdown_kit_web_port to change)"):format(state.web_port),
-			vim.log.levels.ERROR
-		)
-		return
-	end
+  local port = get_port()
+  if not is_port_free(port) then
+    notify(("Port %d already in use"):format(port), vim.log.levels.ERROR)
+    return
+  end
 
-	local service_build = project_root .. "apps/service/dist/index.js"
-	local web_build = project_root .. "apps/web/dist/index.html"
-	local need_service_build = not file_exists(service_build)
-	local need_web_build = not file_exists(web_build)
+  local bin = ensure_binary()
+  if not bin then return end
 
-	if need_service_build then
-		if not run_bun_task({ "bun", "run", "--cwd", "apps/service", "build" }) then
-			return
-		end
-	end
-	if need_web_build then
-		if not run_bun_task({ "bun", "run", "--cwd", "apps/web", "build" }) then
-			return
-		end
-	end
+  state.port  = port
+  state.bufnr = vim.api.nvim_get_current_buf()
 
-	-- Start service process (built)
-	if not is_running(state.service_job) then
-		state.service_job = vim.fn.jobstart({ "bun", "run", "--cwd", "apps/service", "start" }, {
-			cwd = project_root,
-			detach = false,
-			env = { MK_PORT = tostring(state.service_port) },
-			on_exit = function(_, code)
-				if code ~= 0 then
-					vim.schedule(function()
-						notify("Service exited with code " .. code, vim.log.levels.ERROR)
-					end)
-				end
-			end,
-		})
-	end
+  state.job = vim.fn.jobstart({ bin }, {
+    cwd    = project_root,
+    detach = false,
 
-	-- Start built web server (vite preview)
-	if not is_running(state.web_job) then
-		state.web_job = vim.fn.jobstart({
-			"bun",
-			"run",
-			"--cwd",
-			"apps/web",
-			"preview",
-			"--host",
-			host,
-			"--port",
-			tostring(state.web_port),
-			"--strictPort",
-		}, {
-			cwd = project_root,
-			detach = false,
-			env = {
-				MK_WEB_PORT = tostring(state.web_port),
-				VITE_MK_PORT = tostring(state.service_port),
-			},
-			on_exit = function(_, code)
-				if code ~= 0 then
-					vim.schedule(function()
-						notify("Web process exited with code " .. code, vim.log.levels.ERROR)
-					end)
-				end
-			end,
-		})
-	end
+    -- Rust tự mở browser và debounce — Lua chỉ cần env vars
+    env = {
+      MK_PORT         = tostring(port),
+      MK_OPEN_BROWSER = "1",
+      MK_BROWSER_URL  = ("http://" .. host .. ":" .. tostring(port) .. "/"),
+      -- tuning (optional, Rust has defaults)
+      -- MK_DEBOUNCE_MS        = "80",
+      -- MK_INSERT_DEBOUNCE_MS = "35",
+      -- MK_CURSOR_THROTTLE_MS = "16",
+    },
 
-	if not state.service_job or state.service_job <= 0 or not state.web_job or state.web_job <= 0 then
-		notify("Failed to start preview processes", vim.log.levels.ERROR)
-		state.service_job = nil
-		state.web_job = nil
-		return
-	end
+    -- Đọc stdout để biết server đã ready trước khi gửi content
+    on_stdout = function(_, data)
+      for _, line in ipairs(data) do
+        if line:match("^mk%-core:ready:") then
+          state.ready = true
+          -- Server đã bind — gửi content lần đầu
+          vim.schedule(sync_content)
+        end
+      end
+    end,
 
-	attach_buffer_autocmd(bufnr)
-	schedule_content_sync(0)
+    on_stderr = function(_, data)
+      for _, line in ipairs(data) do
+        if line and line ~= "" then
+          -- chỉ log khi debug cần thiết
+          -- vim.schedule(function() notify("[stderr] " .. line) end)
+        end
+      end
+    end,
 
-	if not state.preview_opened then
-		open_preview_when_ready()
-		state.preview_opened = true
-	end
+    on_exit = function(_, code)
+      state.ready = false
+      if code ~= 0 then
+        vim.schedule(function()
+          notify("Core exited with code " .. code, vim.log.levels.ERROR)
+        end)
+      end
+    end,
+  })
 
-	notify(("Preview started (service :%d, web :%d)"):format(state.service_port, state.web_port))
+  if not state.job or state.job <= 0 then
+    notify("Failed to spawn binary", vim.log.levels.ERROR)
+    state.job = nil
+    return
+  end
+
+  attach_autocmds(state.bufnr)
+  notify(("Preview started on port :%d"):format(port))
 end
 
 function M.stop()
-	send({ type = "preview:close" })
-	if is_running(state.service_job) then
-		vim.fn.jobstop(state.service_job)
-	end
-	if is_running(state.web_job) then
-		vim.fn.jobstop(state.web_job)
-	end
-
-	state.service_job = nil
-	state.web_job = nil
-	state.service_port = nil
-	state.line_count = nil
-	state.pending_cursor = nil
-	state.last_sent_cursor = nil
-	state.preview_opened = false
-
-	if state.content_timer then
-		state.content_timer:stop()
-		state.content_timer:close()
-		state.content_timer = nil
-	end
-
-	if state.cursor_timer then
-		state.cursor_timer:stop()
-		state.cursor_timer:close()
-		state.cursor_timer = nil
-	end
-
-	vim.api.nvim_clear_autocmds({ group = augroup })
-	notify("Preview stopped")
+  send({ type = "preview:close" })
+  if is_running() then
+    vim.fn.jobstop(state.job)
+  end
+  state.job   = nil
+  state.port  = nil
+  state.ready = false
+  state.bufnr = nil
+  vim.api.nvim_clear_autocmds({ group = augroup })
+  notify("Preview stopped")
 end
 
 function M.toggle()
-	if is_running(state.service_job) or is_running(state.web_job) then
-		M.stop()
-	else
-		M.start()
-	end
+  if is_running() then M.stop() else M.start() end
 end
 
 return M
