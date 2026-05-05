@@ -7,6 +7,7 @@ local state = {
   port    = nil,
   ready   = false,   -- true sau khi đọc được "mk-core:ready" từ stdout
   bufnr   = nil,
+  bin     = nil,
 }
 
 -- ─── Config ───────────────────────────────────────────────────────────────────
@@ -35,34 +36,40 @@ local function file_exists(path)
   return vim.uv.fs_stat(path) ~= nil
 end
 
-local function mtime_ns(path)
-  local stat = vim.uv.fs_stat(path)
-  if not stat or not stat.mtime then return nil end
-  local sec = stat.mtime.sec or 0
-  local nsec = stat.mtime.nsec or 0
-  return sec * 1000000000 + nsec
+local function is_windows()
+  return vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1
 end
 
-local function is_binary_stale(bin)
-  local bin_mtime = mtime_ns(bin)
-  if not bin_mtime then return true end
+local function binary_name()
+  return is_windows() and "mk-core.exe" or "mk-core"
+end
 
-  -- mk-core embeds client assets at compile time via rust-embed.
-  -- Rebuild when web assets or core sources are newer than the binary.
-  local watch_files = {
-    project_root .. "apps/client/dist/index.html",
-    project_root .. "apps/core/src/server.rs",
-    project_root .. "apps/core/src/markdown.rs",
-  }
+local function binary_candidates()
+  local name = binary_name()
+  local out = {}
 
-  for _, path in ipairs(watch_files) do
-    local changed_at = mtime_ns(path)
-    if changed_at and changed_at > bin_mtime then
-      return true
-    end
+  -- Highest priority: explicit override
+  if vim.g.markdown_kit_binary and vim.g.markdown_kit_binary ~= "" then
+    table.insert(out, vim.g.markdown_kit_binary)
   end
 
-  return false
+  -- Release/runtime layout: ship binary with plugin.
+  table.insert(out, project_root .. "nvim/bin/" .. name)
+
+  -- Optional user cache location.
+  table.insert(out, vim.fn.stdpath("data") .. "/markdown-kit.nvim/bin/" .. name)
+
+  -- Dev fallback (for contributors using source repo).
+  table.insert(out, project_root .. "apps/core/target/release/" .. name)
+
+  return out
+end
+
+local function resolve_binary()
+  for _, path in ipairs(binary_candidates()) do
+    if file_exists(path) then return path end
+  end
+  return nil
 end
 
 local function is_port_free(port)
@@ -151,27 +158,18 @@ end
 -- ─── Binary launcher ──────────────────────────────────────────────────────────
 
 local function ensure_binary()
-  local bin = project_root .. "apps/core/target/release/mk-core"
-  if vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1 then
-    bin = bin .. ".exe"
-  end
-
-  if file_exists(bin) and not is_binary_stale(bin) then
+  local bin = resolve_binary()
+  if bin then
+    state.bin = bin
     return bin
   end
 
-  -- Auto-build
-  notify("Building mk-core (binary missing or stale)…")
-  local result = vim.system(
-    { "cargo", "build", "--release", "--manifest-path", project_root .. "apps/core/Cargo.toml" },
-    { cwd = project_root, text = true }
-  ):wait()
-
-  if result.code ~= 0 then
-    notify("Build failed:\n" .. (result.stderr or ""), vim.log.levels.ERROR)
-    return nil
-  end
-  return bin
+  notify(
+    "mk-core binary not found. Place binary at nvim/bin/" .. binary_name()
+      .. " or set vim.g.markdown_kit_binary",
+    vim.log.levels.ERROR
+  )
+  return nil
 end
 
 -- ─── Public API ───────────────────────────────────────────────────────────────
@@ -258,6 +256,7 @@ function M.stop()
   state.port  = nil
   state.ready = false
   state.bufnr = nil
+  state.bin   = nil
   vim.api.nvim_clear_autocmds({ group = augroup })
   notify("Preview stopped")
 end

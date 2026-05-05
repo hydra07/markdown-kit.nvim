@@ -49,8 +49,8 @@ jobs:
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME}"
           OUT_DIR="dist/release/markdown-kit-nvim-${VERSION}-${{ matrix.target }}"
-          mkdir -p "${OUT_DIR}/bin" "${OUT_DIR}/nvim"
-          cp apps/core/target/release/mk-core "${OUT_DIR}/bin/"
+          mkdir -p "${OUT_DIR}/nvim/bin"
+          cp apps/core/target/release/mk-core "${OUT_DIR}/nvim/bin/"
           cp -R nvim/. "${OUT_DIR}/nvim/"
           cp README.md "${OUT_DIR}/README.md"
           tar -C dist/release -czf "dist/release/markdown-kit-nvim-${VERSION}-${{ matrix.target }}.tar.gz" "markdown-kit-nvim-${VERSION}-${{ matrix.target }}"
@@ -61,9 +61,9 @@ jobs:
         run: |
           $version = "${env:GITHUB_REF_NAME}"
           $outDir = "dist/release/markdown-kit-nvim-$version-${{ matrix.target }}"
-          New-Item -ItemType Directory -Force -Path "$outDir/bin" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$outDir/nvim/bin" | Out-Null
           New-Item -ItemType Directory -Force -Path "$outDir/nvim" | Out-Null
-          Copy-Item "apps/core/target/release/mk-core.exe" "$outDir/bin/mk-core.exe" -Force
+          Copy-Item "apps/core/target/release/mk-core.exe" "$outDir/nvim/bin/mk-core.exe" -Force
           Copy-Item "nvim/*" "$outDir/nvim" -Recurse -Force
           Copy-Item "README.md" "$outDir/README.md" -Force
           Compress-Archive -Path "$outDir/*" -DestinationPath "dist/release/markdown-kit-nvim-$version-${{ matrix.target }}.zip" -Force

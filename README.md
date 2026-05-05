@@ -11,9 +11,11 @@ Neovim Markdown preview plugin with:
 {
   "hydra07/markdown-kit.nvim",
   ft = { "markdown" },
-  build = "mise run setup && mise run build",
+  -- Runtime package should ship prebuilt nvim/bin/mk-core(.exe), so no heavy build.
+  build = "mise trust .mise.toml && mise run setup",
   config = function()
-    -- Optional: custom root path if needed
+    -- Optional overrides:
+    -- vim.g.markdown_kit_binary = "C:/path/to/mk-core.exe"
     -- vim.g.markdown_kit_root = vim.fn.stdpath("data") .. "/lazy/markdown-kit.nvim/"
   end,
 }
@@ -50,4 +52,5 @@ This configures Git to use the tracked hook in `.githooks/pre-commit`.
 - Release workflow: `.github/workflows/release.yml`
   - Triggered by pushing a tag like `v0.1.0`
   - Builds client + core on Linux/macOS/Windows
+  - Packages runtime artifact with prebuilt binary at `nvim/bin/mk-core(.exe)`
   - Publishes bundled release artifacts to GitHub Releases
