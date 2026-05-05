@@ -36,6 +36,9 @@ jobs:
       - name: Install toolchains
         run: mise install
 
+      - name: Setup dependencies
+        run: mise run setup
+
       - name: Build client and core
         run: mise run build
 
