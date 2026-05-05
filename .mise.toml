@@ -67,7 +67,7 @@ run = "cargo build --release --manifest-path apps/core/Cargo.toml"
 
 [tasks.check]
 description = "CI checks (typecheck + rust check + rust tests)"
-run = "mise run client:typecheck && mise run core:check && mise run core:test"
+run = "mise run client:typecheck && mise run client:build && mise run core:check && mise run core:test"
 
 [tasks.build]
 alias = "b"
