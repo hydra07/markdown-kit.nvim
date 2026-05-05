@@ -65,9 +65,10 @@ jobs:
           VERSION="${{ steps.version.outputs.value }}"
           OUT_DIR="dist/release/markdown-kit-nvim-${VERSION}-${{ matrix.target }}"
 
-          mkdir -p "${OUT_DIR}/nvim/bin"
-          cp -R nvim/. "${OUT_DIR}/nvim/"
-          cp apps/core/target/release/mk-core "${OUT_DIR}/nvim/bin/"
+          mkdir -p "${OUT_DIR}/plugin" "${OUT_DIR}/lua" "${OUT_DIR}/bin"
+          cp -R nvim/plugin/. "${OUT_DIR}/plugin/"
+          cp -R nvim/lua/. "${OUT_DIR}/lua/"
+          cp apps/core/target/release/mk-core "${OUT_DIR}/bin/"
           cp README.md "${OUT_DIR}/README.md"
 
           tar -C dist/release -czf "dist/release/markdown-kit-nvim-${VERSION}-${{ matrix.target }}.tar.gz" "markdown-kit-nvim-${VERSION}-${{ matrix.target }}"
@@ -79,9 +80,12 @@ jobs:
           $version = "${{ steps.version.outputs.value }}"
           $outDir = "dist/release/markdown-kit-nvim-$version-${{ matrix.target }}"
 
-          New-Item -ItemType Directory -Force -Path "$outDir/nvim/bin" | Out-Null
-          Copy-Item "nvim/*" "$outDir/nvim" -Recurse -Force
-          Copy-Item "apps/core/target/release/mk-core.exe" "$outDir/nvim/bin/mk-core.exe" -Force
+          New-Item -ItemType Directory -Force -Path "$outDir/plugin" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$outDir/lua" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$outDir/bin" | Out-Null
+          Copy-Item "nvim/plugin/*" "$outDir/plugin" -Recurse -Force
+          Copy-Item "nvim/lua/*" "$outDir/lua" -Recurse -Force
+          Copy-Item "apps/core/target/release/mk-core.exe" "$outDir/bin/mk-core.exe" -Force
           Copy-Item "README.md" "$outDir/README.md" -Force
 
           Compress-Archive -Path "$outDir/*" -DestinationPath "dist/release/markdown-kit-nvim-$version-${{ matrix.target }}.zip" -Force
@@ -98,9 +102,10 @@ jobs:
           RUNTIME_DIR="dist/runtime-${{ matrix.target }}"
 
           rm -rf "${RUNTIME_DIR}"
-          mkdir -p "${RUNTIME_DIR}/nvim/bin"
-          cp -R nvim/. "${RUNTIME_DIR}/nvim/"
-          cp apps/core/target/release/mk-core "${RUNTIME_DIR}/nvim/bin/"
+          mkdir -p "${RUNTIME_DIR}/plugin" "${RUNTIME_DIR}/lua" "${RUNTIME_DIR}/bin"
+          cp -R nvim/plugin/. "${RUNTIME_DIR}/plugin/"
+          cp -R nvim/lua/. "${RUNTIME_DIR}/lua/"
+          cp apps/core/target/release/mk-core "${RUNTIME_DIR}/bin/"
           cp README.md "${RUNTIME_DIR}/README.md"
 
           git -C "${RUNTIME_DIR}" init
@@ -123,9 +128,12 @@ jobs:
           $runtimeDir = "dist/runtime-${{ matrix.target }}"
 
           if (Test-Path $runtimeDir) { Remove-Item -Recurse -Force $runtimeDir }
-          New-Item -ItemType Directory -Force -Path "$runtimeDir/nvim/bin" | Out-Null
-          Copy-Item "nvim/*" "$runtimeDir/nvim" -Recurse -Force
-          Copy-Item "apps/core/target/release/mk-core.exe" "$runtimeDir/nvim/bin/mk-core.exe" -Force
+          New-Item -ItemType Directory -Force -Path "$runtimeDir/plugin" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$runtimeDir/lua" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$runtimeDir/bin" | Out-Null
+          Copy-Item "nvim/plugin/*" "$runtimeDir/plugin" -Recurse -Force
+          Copy-Item "nvim/lua/*" "$runtimeDir/lua" -Recurse -Force
+          Copy-Item "apps/core/target/release/mk-core.exe" "$runtimeDir/bin/mk-core.exe" -Force
           Copy-Item "README.md" "$runtimeDir/README.md" -Force
 
           git -C $runtimeDir init
