@@ -14,8 +14,8 @@ rust = "stable"
 
 [tasks.setup]
 alias = "s"
-description = "Install project dependencies for current stack"
-run = "bun install --cwd apps/client"
+description = "Install dependencies for current stack"
+depends = ["client:install"]
 
 [tasks.clean]
 description = "Clean build outputs"
@@ -28,6 +28,10 @@ run = "cargo clean --manifest-path apps/core/Cargo.toml"
 [tasks."client:dev"]
 description = "Run client Vite dev server"
 run = "bun run --cwd apps/client dev"
+
+[tasks."client:install"]
+description = "Install client dependencies"
+run = "bun install --cwd apps/client"
 
 [tasks."client:typecheck"]
 description = "Type-check client"
@@ -68,16 +72,20 @@ run = "mise run client:typecheck && mise run core:check && mise run core:test"
 [tasks.build]
 alias = "b"
 description = "Release build (client then core)"
-depends = ["client:build", "core:build"]
+run = "mise run client:build && mise run core:build"
 
 [tasks.release]
 description = "Run full release pipeline (setup -> check -> build)"
-depends = ["setup", "check", "build"]
+run = "mise run setup && mise run check && mise run build"
 
 [tasks.ci]
 description = "CI pipeline alias (setup -> check -> build)"
-depends = ["setup", "check", "build"]
+run = "mise run setup && mise run check && mise run build"
 
 [tasks.precommit]
 description = "Local pre-commit checks (fast fail before commit)"
 depends = ["client:typecheck", "core:check", "core:test"]
+
+[tasks."hooks:install"]
+description = "Install local git hooks"
+run = "git config --local core.hooksPath .githooks"

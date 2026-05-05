@@ -36,6 +36,14 @@ Useful tasks:
 - `mise run core:run`
 - `mise run release`
 
+## Pre-commit hook
+
+```bash
+mise run hooks:install
+```
+
+This configures Git to use the tracked hook in `.githooks/pre-commit`.
+
 ## CI / Release
 
 - CI workflow: `.github/workflows/ci.yml` (runs `mise run ci`)
