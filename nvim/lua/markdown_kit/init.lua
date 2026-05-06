@@ -219,7 +219,6 @@ function M.start()
     cwd    = project_root,
     detach = false,
 
-    -- Rust tự mở browser và debounce — Lua chỉ cần env vars
     env = {
       MK_PORT         = tostring(port),
       MK_OPEN_BROWSER = "1",
