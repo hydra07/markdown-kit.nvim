@@ -13,7 +13,28 @@ local state = {
 -- ─── Config ───────────────────────────────────────────────────────────────────
 
 local current_file = debug.getinfo(1, "S").source:sub(2)
-local project_root = vim.fn.fnamemodify(current_file, ":p:h:h:h:h") .. "/"
+local function normalize_slashes(path)
+  return (path:gsub("\\", "/"))
+end
+
+local function detect_project_root()
+  local abs_file = normalize_slashes(vim.fn.fnamemodify(current_file, ":p"))
+  local file_dir = normalize_slashes(vim.fn.fnamemodify(abs_file, ":p:h"))
+
+  -- Source layout: <root>/nvim/lua/markdown_kit/init.lua
+  if abs_file:match("/nvim/lua/markdown_kit/init%.lua$") then
+    return normalize_slashes(vim.fn.fnamemodify(file_dir, ":h:h:h"))
+  end
+
+  -- Runtime layout: <root>/lua/markdown_kit/init.lua
+  if abs_file:match("/lua/markdown_kit/init%.lua$") then
+    return normalize_slashes(vim.fn.fnamemodify(file_dir, ":h:h"))
+  end
+
+  return normalize_slashes(vim.fn.fnamemodify(file_dir, ":h:h:h"))
+end
+
+local project_root = detect_project_root() .. "/"
 
 if vim.g.markdown_kit_root and vim.g.markdown_kit_root ~= "" then
   project_root = vim.g.markdown_kit_root
@@ -54,6 +75,7 @@ local function binary_candidates()
   end
 
   -- Release/runtime layout: ship binary with plugin.
+  table.insert(out, project_root .. "bin/" .. name)
   table.insert(out, project_root .. "nvim/bin/" .. name)
 
   -- Optional user cache location.
@@ -165,7 +187,8 @@ local function ensure_binary()
   end
 
   notify(
-    "mk-core binary not found. Place binary at nvim/bin/" .. binary_name()
+    "mk-core binary not found. Place binary at bin/" .. binary_name()
+      .. " (or nvim/bin/" .. binary_name() .. ")"
       .. " or set vim.g.markdown_kit_binary",
     vim.log.levels.ERROR
   )

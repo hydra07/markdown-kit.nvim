@@ -14,7 +14,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  check-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      rust_changed: ${{ steps.filter.outputs.rust }}
+      nvim_changed: ${{ steps.filter.outputs.nvim }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'apps/**'
+              - 'Cargo.lock'
+              - 'Cargo.toml'
+            nvim:
+              - 'nvim/**'
+
   build-assets:
+    needs: check-changes
+    if: needs.check-changes.outputs.rust_changed == 'true'
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -30,22 +53,12 @@ jobs:
           - os: windows-latest
             target: windows-x64
             archive_ext: zip
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup mise
-        uses: jdx/mise-action@v2
-
-      - name: Install toolchains
-        run: mise install
-
-      - name: Setup dependencies
-        run: mise run setup
-
-      - name: Build client and core
-        run: mise run build
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - run: mise install
+      - run: mise run setup
+      - run: mise run build
 
       - name: Resolve version
         id: version
@@ -64,31 +77,27 @@ jobs:
           set -euo pipefail
           VERSION="${{ steps.version.outputs.value }}"
           OUT_DIR="dist/release/markdown-kit-nvim-${VERSION}-${{ matrix.target }}"
-
           mkdir -p "${OUT_DIR}/plugin" "${OUT_DIR}/lua" "${OUT_DIR}/bin"
           cp -R nvim/plugin/. "${OUT_DIR}/plugin/"
-          cp -R nvim/lua/. "${OUT_DIR}/lua/"
+          cp -R nvim/lua/.   "${OUT_DIR}/lua/"
           cp apps/core/target/release/mk-core "${OUT_DIR}/bin/"
-          cp README.md "${OUT_DIR}/README.md"
-
-          tar -C dist/release -czf "dist/release/markdown-kit-nvim-${VERSION}-${{ matrix.target }}.tar.gz" "markdown-kit-nvim-${VERSION}-${{ matrix.target }}"
+          cp README.md "${OUT_DIR}/"
+          tar -C dist/release -czf "dist/release/markdown-kit-nvim-${VERSION}-${{ matrix.target }}.tar.gz" \
+            "markdown-kit-nvim-${VERSION}-${{ matrix.target }}"
 
       - name: Prepare release bundle (windows)
         if: runner.os == 'Windows'
         shell: powershell
         run: |
           $version = "${{ steps.version.outputs.value }}"
-          $outDir = "dist/release/markdown-kit-nvim-$version-${{ matrix.target }}"
-
-          New-Item -ItemType Directory -Force -Path "$outDir/plugin" | Out-Null
-          New-Item -ItemType Directory -Force -Path "$outDir/lua" | Out-Null
-          New-Item -ItemType Directory -Force -Path "$outDir/bin" | Out-Null
+          $outDir  = "dist/release/markdown-kit-nvim-$version-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force "$outDir/plugin","$outDir/lua","$outDir/bin" | Out-Null
           Copy-Item "nvim/plugin/*" "$outDir/plugin" -Recurse -Force
-          Copy-Item "nvim/lua/*" "$outDir/lua" -Recurse -Force
-          Copy-Item "apps/core/target/release/mk-core.exe" "$outDir/bin/mk-core.exe" -Force
-          Copy-Item "README.md" "$outDir/README.md" -Force
-
-          Compress-Archive -Path "$outDir/*" -DestinationPath "dist/release/markdown-kit-nvim-$version-${{ matrix.target }}.zip" -Force
+          Copy-Item "nvim/lua/*"    "$outDir/lua"    -Recurse -Force
+          Copy-Item "apps/core/target/release/mk-core.exe" "$outDir/bin/" -Force
+          Copy-Item "README.md" "$outDir/" -Force
+          Compress-Archive -Path "$outDir/*" `
+            -DestinationPath "dist/release/markdown-kit-nvim-$version-${{ matrix.target }}.zip" -Force
 
       - name: Publish runtime branch (unix)
         if: runner.os != 'Windows'
@@ -104,17 +113,18 @@ jobs:
           rm -rf "${RUNTIME_DIR}"
           mkdir -p "${RUNTIME_DIR}/plugin" "${RUNTIME_DIR}/lua" "${RUNTIME_DIR}/bin"
           cp -R nvim/plugin/. "${RUNTIME_DIR}/plugin/"
-          cp -R nvim/lua/. "${RUNTIME_DIR}/lua/"
+          cp -R nvim/lua/.    "${RUNTIME_DIR}/lua/"
           cp apps/core/target/release/mk-core "${RUNTIME_DIR}/bin/"
-          cp README.md "${RUNTIME_DIR}/README.md"
+          cp README.md "${RUNTIME_DIR}/"
 
           git -C "${RUNTIME_DIR}" init
           git -C "${RUNTIME_DIR}" checkout -b "${BRANCH}"
-          git -C "${RUNTIME_DIR}" config user.name "github-actions[bot]"
-          git -C "${RUNTIME_DIR}" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "${RUNTIME_DIR}" config user.name  "github-actions[bot]"
+          git -C "${RUNTIME_DIR}" config user.email "github-actions[bot]@users.noreply.github.com"
           git -C "${RUNTIME_DIR}" add .
           git -C "${RUNTIME_DIR}" commit -m "runtime: ${VERSION} (${{ matrix.target }})"
-          git -C "${RUNTIME_DIR}" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "${RUNTIME_DIR}" remote add origin \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git -C "${RUNTIME_DIR}" push --force origin "${BRANCH}"
 
       - name: Publish runtime branch (windows)
@@ -123,26 +133,25 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $version = "${{ steps.version.outputs.value }}"
-          $branch = "runtime-${{ matrix.target }}"
+          $version    = "${{ steps.version.outputs.value }}"
+          $branch     = "runtime-${{ matrix.target }}"
           $runtimeDir = "dist/runtime-${{ matrix.target }}"
 
           if (Test-Path $runtimeDir) { Remove-Item -Recurse -Force $runtimeDir }
-          New-Item -ItemType Directory -Force -Path "$runtimeDir/plugin" | Out-Null
-          New-Item -ItemType Directory -Force -Path "$runtimeDir/lua" | Out-Null
-          New-Item -ItemType Directory -Force -Path "$runtimeDir/bin" | Out-Null
+          New-Item -ItemType Directory -Force "$runtimeDir/plugin","$runtimeDir/lua","$runtimeDir/bin" | Out-Null
           Copy-Item "nvim/plugin/*" "$runtimeDir/plugin" -Recurse -Force
-          Copy-Item "nvim/lua/*" "$runtimeDir/lua" -Recurse -Force
-          Copy-Item "apps/core/target/release/mk-core.exe" "$runtimeDir/bin/mk-core.exe" -Force
-          Copy-Item "README.md" "$runtimeDir/README.md" -Force
+          Copy-Item "nvim/lua/*"    "$runtimeDir/lua"    -Recurse -Force
+          Copy-Item "apps/core/target/release/mk-core.exe" "$runtimeDir/bin/" -Force
+          Copy-Item "README.md" "$runtimeDir/" -Force
 
           git -C $runtimeDir init
           git -C $runtimeDir checkout -b $branch
-          git -C $runtimeDir config user.name "github-actions[bot]"
-          git -C $runtimeDir config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C $runtimeDir config user.name  "github-actions[bot]"
+          git -C $runtimeDir config user.email "github-actions[bot]@users.noreply.github.com"
           git -C $runtimeDir add .
           git -C $runtimeDir commit -m "runtime: $version (${{ matrix.target }})"
-          git -C $runtimeDir remote add origin "https://x-access-token:$env:GH_TOKEN@github.com/${env:GITHUB_REPOSITORY}.git"
+          git -C $runtimeDir remote add origin `
+            "https://x-access-token:$env:GH_TOKEN@github.com/${env:GITHUB_REPOSITORY}.git"
           git -C $runtimeDir push --force origin $branch
 
       - name: Upload assets
@@ -151,19 +160,70 @@ jobs:
           name: release-${{ matrix.target }}
           path: dist/release/*.${{ matrix.archive_ext }}
 
+  update-nvim-only:
+    needs: check-changes
+    if: |
+      needs.check-changes.outputs.nvim_changed == 'true' &&
+      needs.check-changes.outputs.rust_changed == 'false'
+    name: Update nvim files – ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [linux-x64, macos-x64, windows-x64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Merge nvim files into runtime branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.value }}"
+          BRANCH="runtime-${{ matrix.target }}"
+          RUNTIME_DIR="dist/runtime-${{ matrix.target }}"
+          REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          # clone runtime branch hiện tại (giữ nguyên binary)
+          git clone --depth=1 --branch "${BRANCH}" "${REMOTE}" "${RUNTIME_DIR}"
+
+          # overwrite chỉ phần nvim
+          rm -rf "${RUNTIME_DIR}/plugin" "${RUNTIME_DIR}/lua"
+          mkdir -p "${RUNTIME_DIR}/plugin" "${RUNTIME_DIR}/lua"
+          cp -R nvim/plugin/. "${RUNTIME_DIR}/plugin/"
+          cp -R nvim/lua/.    "${RUNTIME_DIR}/lua/"
+          cp README.md "${RUNTIME_DIR}/"
+
+          # commit lên branch (giữ history, không force)
+          git -C "${RUNTIME_DIR}" config user.name  "github-actions[bot]"
+          git -C "${RUNTIME_DIR}" config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C "${RUNTIME_DIR}" add .
+          git -C "${RUNTIME_DIR}" diff --cached --quiet && echo "no changes" && exit 0
+          git -C "${RUNTIME_DIR}" commit -m "chore: update nvim files ${VERSION} (${{ matrix.target }})"
+          git -C "${RUNTIME_DIR}" push origin "${BRANCH}"
+
   publish:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
     needs: build-assets
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: dist/release
 
-      - name: Publish release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
           files: dist/release/**/*.*
           generate_release_notes: true
