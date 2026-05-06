@@ -11,9 +11,8 @@ path = "src/main.rs"
 [dependencies]
 # HTTP + WebSocket server
 axum = { version = "0.8", features = ["ws"] }
-tokio = { version = "1", features = ["full"] }
-tokio-tungstenite = "0.27"
-futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "sync", "io-util", "io-std", "time"] }
+base64 = "0.22"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -38,7 +37,7 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 smallvec = "1.15.1"
-mermaid-rs-renderer = "0.2.2"
+mermaid-rs-renderer = { version = "0.2.2", default-features = false }
 
 [profile.release]
 opt-level = 3

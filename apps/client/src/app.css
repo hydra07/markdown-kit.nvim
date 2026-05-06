@@ -354,11 +354,13 @@
   }
 
   .markdown-body :where(.mermaid-rendered) {
+    display: inline-block;
     margin: 0.8rem 0;
+    max-width: 100%;
     border: 1px solid var(--border-soft);
     background: color-mix(in srgb, var(--bg-code) 78%, transparent);
     padding: 0.35rem;
-    overflow-x: auto;
+    overflow: auto hidden;
     cursor: zoom-in;
     line-height: 0;
   }
@@ -368,6 +370,9 @@
   }
 
   .markdown-body :where(.mermaid-rendered svg) {
+    width: 100%;
+    max-width: 100%;
+    height: auto;
     margin: 0;
     vertical-align: top;
   }
@@ -668,6 +673,7 @@
   box-shadow: var(--shadow-md);
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 .mermaid-modal-toolbar {
@@ -702,10 +708,11 @@
 }
 
 .mermaid-modal-viewport {
+  flex: 1;
+  min-height: 60vh;
   overflow: hidden;
   cursor: grab;
   padding: 0.4rem;
-  min-height: 60vh;
   touch-action: none;
 }
 
@@ -715,15 +722,17 @@
 
 .mermaid-modal-content {
   transform-origin: top left;
-  width: max-content;
+  box-sizing: border-box;
+  width: 100%;
   max-width: 100%;
   line-height: 0;
-  will-change: transform;
 }
 
 .mermaid-modal-content svg {
   display: block;
-  max-width: min(100%, 1100px);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
   max-height: calc(90vh - 7rem);
   height: auto;
   margin: 0 auto;

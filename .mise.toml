@@ -35,7 +35,7 @@ run = "bun install --cwd apps/client"
 
 [tasks."client:typecheck"]
 description = "Type-check client"
-run = "tsc --pretty false --noEmit -p apps/client/tsconfig.app.json"
+run = "bun run --cwd apps/client tsc --pretty false --noEmit -p tsconfig.app.json"
 
 [tasks."client:build"]
 description = "Build client assets (embedded by core)"
