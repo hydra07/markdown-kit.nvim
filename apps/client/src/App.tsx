@@ -9,13 +9,18 @@ import morphdom from "morphdom";
 import { ConnBadge } from "./components/ui/ConnBadge";
 import { FollowCursorToggle } from "./components/ui/FollowCursorToggle";
 import { LiveBadge } from "./components/ui/LiveBadge";
+import { OledToggle } from "./components/ui/OledToggle";
+import { ReadingProgress } from "./components/ui/ReadingProgress";
 import { ThemeToggle } from "./components/ui/ThemeToggle";
+import { Toc } from "./components/ui/Toc";
 import { IconFile } from "./components/ui/icons/IconFile";
 import { MermaidModal } from "./components/preview/MermaidModal";
 import { wsUrl } from "./configs/ws";
 import { useDocumentTitle } from "./hooks/useDocumentTitle";
 import { useMermaidModal } from "./hooks/useMermaidModal";
 import { usePreviewSocket } from "./hooks/usePreviewSocket";
+import { useReadingProgress } from "./hooks/useReadingProgress";
+import { useToc } from "./hooks/useToc";
 import {
   usePreviewCurrentBlockHighlight,
   usePreviewFollowScroll,
@@ -62,6 +67,15 @@ export function App() {
     }
   });
 
+  // OLED pure-black preference (persisted, independent of dark/light)
+  const [oled, setOled] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem("mk_oled") === "1";
+    } catch {
+      return false;
+    }
+  });
+
   useDocumentTitle(fileName);
 
   useEffect(() => {
@@ -71,6 +85,14 @@ export function App() {
       /* restricted context */
     }
   }, [followCursor]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("mk_oled", oled ? "1" : "0");
+    } catch {
+      /* restricted context */
+    }
+  }, [oled]);
 
   // ── Content rendering ──────────────────────────────────────────────────────
   useLayoutEffect(() => {
@@ -103,12 +125,25 @@ export function App() {
     applyAdaptiveMermaidSizing(contentRef.current);
     applyMermaidThemeToPreview(contentRef.current, theme);
 
-    // Add copy buttons to code fences.
+    // Decorate code fences with a language label + copy button.
     const codeBlocks =
       contentRef.current.querySelectorAll<HTMLElement>("pre.hljs");
     codeBlocks.forEach((pre, idx) => {
       pre.dataset.mkCodeId = pre.dataset.mkCodeId || `code-${idx}`;
       if (pre.querySelector(".mk-code-copy-btn")) return;
+
+      const codeEl = pre.querySelector("code");
+      const langClass = Array.from(codeEl?.classList ?? []).find((c) =>
+        c.startsWith("language-"),
+      );
+      const lang = langClass ? langClass.slice("language-".length) : "";
+      if (lang) {
+        const label = document.createElement("span");
+        label.className = "mk-code-lang";
+        label.textContent = lang;
+        pre.appendChild(label);
+      }
+
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "mk-code-copy-btn";
@@ -211,15 +246,22 @@ export function App() {
     syncViewport,
   });
 
+  // ── Outline (TOC + scroll-spy) & reading progress ───────────────────────────
+  const { items: tocItems, activeId, scrollToId } = useToc(html, contentRef);
+  const progress = useReadingProgress();
+
   const shortName = fileName.split(/\\|\//).pop() || "Markdown Preview";
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div
       data-theme={theme}
+      data-oled={theme === "dark" && oled ? "true" : undefined}
       className="app-root min-h-dvh w-full bg-(--bg-page) text-(--fg) antialiased transition-colors duration-300"
     >
-      <div className="app-wrap">
+      <ReadingProgress progress={progress} />
+
+      <div className="app-shell">
         <header className="app-header">
           <div className="file-name">
             <IconFile />
@@ -233,16 +275,27 @@ export function App() {
             enabled={followCursor}
             onToggle={() => setFollowCursor((v) => !v)}
           />
+          {theme === "dark" && (
+            <OledToggle enabled={oled} onToggle={() => setOled((v) => !v)} />
+          )}
           <ThemeToggle
             theme={theme}
             onToggle={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
           />
         </header>
 
-        <section
-          ref={contentRef}
-          className="app-content markdown-body prose max-w-none flex-1 border border-t-0 border-transparent bg-(--glass) px-6 py-7 text-[0.9375rem] leading-[1.78] text-(--fg) shadow-(--shadow-md) backdrop-blur-md transition-[background-color,border-color,color] duration-300 hover:border-(--border-soft)"
-        />
+        <div className="app-layout">
+          <aside className="app-sidebar">
+            <Toc items={tocItems} activeId={activeId} onSelect={scrollToId} />
+          </aside>
+
+          <main className="app-main">
+            <section
+              ref={contentRef}
+              className="app-content markdown-body prose max-w-none border border-transparent bg-(--glass) text-[0.9375rem] leading-[1.78] text-(--fg) shadow-(--shadow-md) backdrop-blur-md transition-[background-color,border-color,color] duration-300 hover:border-(--border-soft)"
+            />
+          </main>
+        </div>
 
         {status !== "connected" && <ConnBadge wsUrl={wsUrl} />}
       </div>

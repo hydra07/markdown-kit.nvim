@@ -14,17 +14,26 @@ Use the runtime branch for your platform (lightweight, prebuilt binary included)
   "hydra07/markdown-kit.nvim",
   branch = "runtime-windows-x64", -- or runtime-linux-x64 / runtime-macos-x64
   ft = { "markdown" },
-  config = function()
-    -- Optional overrides:
-    -- vim.g.markdown_kit_binary = "C:/path/to/mk-core.exe"
-    -- vim.g.markdown_kit_root = vim.fn.stdpath("data") .. "/lazy/markdown-kit.nvim/"
-  end,
+  opts = {
+    -- All fields optional; defaults shown:
+    -- port       = 35831,
+    -- theme      = "dark",       -- "dark" | "light"
+    -- auto_close = true,         -- close preview when the buffer is hidden
+    -- auto_build = true,         -- build from source if no prebuilt binary (dev)
+    -- binary     = nil,          -- explicit path to mk-core(.exe)
+    -- root       = nil,          -- override plugin root
+  },
 }
 ```
+
+`opts` is passed to `require("markdown_kit").setup()`. For back-compat the
+matching `vim.g.markdown_kit_*` globals (and `vim.g.mkdp_port` / `vim.g.mkdp_theme`)
+are still honoured; `setup()` values take precedence.
 
 After install:
 - `:MarkdownKitStart` (or `:MkStart`) to open preview
 - `:MarkdownKitStop` (or `:MkStop`) to stop
+- `:MarkdownKitToggle` (or `:MkToggle`) to toggle
 
 ## Local development
 

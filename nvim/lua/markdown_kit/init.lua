@@ -3,16 +3,21 @@ local M = {}
 -- ─── State ────────────────────────────────────────────────────────────────────
 
 local state = {
-  job     = nil,
-  port    = nil,
-  ready   = false,   -- true sau khi đọc được "mk-core:ready" từ stdout
-  bufnr   = nil,
-  bin     = nil,
+  job   = nil,
+  port  = nil,
+  ready = false, -- true once "mk-core:ready" is read from stdout
+  bufnr = nil,
+  bin   = nil,
 }
 
--- ─── Config ───────────────────────────────────────────────────────────────────
+-- User config set via setup(); resolution priority is:
+--   setup() opts  >  vim.g.*  >  built-in default
+local user_opts = {}
+
+-- ─── Path detection ───────────────────────────────────────────────────────────
 
 local current_file = debug.getinfo(1, "S").source:sub(2)
+
 local function normalize_slashes(path)
   return (path:gsub("\\", "/"))
 end
@@ -34,14 +39,50 @@ local function detect_project_root()
   return normalize_slashes(vim.fn.fnamemodify(file_dir, ":h:h:h"))
 end
 
-local project_root = detect_project_root() .. "/"
+local host = "127.0.0.1"
+local augroup = vim.api.nvim_create_augroup("MarkdownKitSync", { clear = true })
 
-if vim.g.markdown_kit_root and vim.g.markdown_kit_root ~= "" then
-  project_root = vim.g.markdown_kit_root
+-- ─── Config ───────────────────────────────────────────────────────────────────
+
+-- Resolve a single option: setup() opts > vim.g override(s) > default.
+local function opt(key, g_keys, default)
+  if user_opts[key] ~= nil then return user_opts[key] end
+  for _, g in ipairs(g_keys) do
+    local v = vim.g[g]
+    if v ~= nil and v ~= "" then return v end
+  end
+  return default
 end
 
-local host   = "127.0.0.1"
-local augroup = vim.api.nvim_create_augroup("MarkdownKitSync", { clear = true })
+local function project_root()
+  local root = opt("root", { "markdown_kit_root" }, nil)
+  if not root or root == "" then root = detect_project_root() end
+  if not root:match("/$") then root = root .. "/" end
+  return root
+end
+
+local function get_port()
+  local p = tonumber(opt("port", { "markdown_kit_port", "mkdp_port" }, 35831))
+  if p and p > 0 then return math.floor(p) end
+  return 35831
+end
+
+local function get_theme()
+  local t = opt("theme", { "markdown_kit_theme", "mkdp_theme" }, "dark")
+  return (t == "light") and "light" or "dark"
+end
+
+local function auto_close_enabled()
+  -- Back-compat: vim.g.markdown_kit_auto_close == 0 disables.
+  if user_opts.auto_close ~= nil then return user_opts.auto_close ~= false end
+  return vim.g.markdown_kit_auto_close ~= 0
+end
+
+local function auto_build_enabled()
+  -- Defaults on (dev convenience); runtime branches ship a prebuilt binary so
+  -- this never triggers there.
+  return opt("auto_build", { "markdown_kit_auto_build" }, true) ~= false
+end
 
 -- ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -65,34 +106,111 @@ local function binary_name()
   return is_windows() and "mk-core.exe" or "mk-core"
 end
 
-local function binary_candidates()
+local function mtime_ns(path)
+  local stat = vim.uv.fs_stat(path)
+  if not stat or not stat.mtime then return nil end
+  return (stat.mtime.sec or 0) * 1000000000 + (stat.mtime.nsec or 0)
+end
+
+-- ─── Binary resolution ────────────────────────────────────────────────────────
+
+local function dev_target_binary(root)
+  return root .. "apps/core/target/release/" .. binary_name()
+end
+
+local function binary_candidates(root)
   local name = binary_name()
   local out = {}
 
-  -- Highest priority: explicit override
-  if vim.g.markdown_kit_binary and vim.g.markdown_kit_binary ~= "" then
-    table.insert(out, vim.g.markdown_kit_binary)
-  end
+  -- Highest priority: explicit override.
+  local override = opt("binary", { "markdown_kit_binary" }, nil)
+  if override and override ~= "" then table.insert(out, override) end
 
-  -- Release/runtime layout: ship binary with plugin.
-  table.insert(out, project_root .. "bin/" .. name)
-  table.insert(out, project_root .. "nvim/bin/" .. name)
+  -- Release/runtime layout: binary shipped alongside the plugin.
+  table.insert(out, root .. "bin/" .. name)
+  table.insert(out, root .. "nvim/bin/" .. name)
 
   -- Optional user cache location.
   table.insert(out, vim.fn.stdpath("data") .. "/markdown-kit.nvim/bin/" .. name)
 
-  -- Dev fallback (for contributors using source repo).
-  table.insert(out, project_root .. "apps/core/target/release/" .. name)
+  -- Dev fallback (contributors building from source).
+  table.insert(out, dev_target_binary(root))
 
   return out
 end
 
-local function resolve_binary()
-  for _, path in ipairs(binary_candidates()) do
+local function resolve_prebuilt(root)
+  for _, path in ipairs(binary_candidates(root)) do
     if file_exists(path) then return path end
   end
   return nil
 end
+
+-- The dev binary embeds client assets at compile time (rust-embed). Rebuild when
+-- web assets or core sources are newer than the binary.
+local function is_dev_binary_stale(root, bin)
+  local bin_mtime = mtime_ns(bin)
+  if not bin_mtime then return true end
+
+  local watch_files = {
+    root .. "apps/client/dist/index.html",
+    root .. "apps/core/src/server.rs",
+    root .. "apps/core/src/markdown/mod.rs",
+  }
+  for _, path in ipairs(watch_files) do
+    local changed_at = mtime_ns(path)
+    if changed_at and changed_at > bin_mtime then return true end
+  end
+  return false
+end
+
+local function build_dev_binary(root)
+  if vim.fn.executable("cargo") ~= 1 then
+    notify("cargo not found — cannot auto-build mk-core", vim.log.levels.ERROR)
+    return nil
+  end
+
+  notify("Building mk-core (binary missing or stale)…")
+  local result = vim.system(
+    { "cargo", "build", "--release", "--manifest-path", root .. "apps/core/Cargo.toml" },
+    { cwd = root, text = true }
+  ):wait()
+
+  if result.code ~= 0 then
+    notify("Build failed:\n" .. (result.stderr or ""), vim.log.levels.ERROR)
+    return nil
+  end
+  return dev_target_binary(root)
+end
+
+local function ensure_binary(root)
+  -- A fresh prebuilt binary wins outright.
+  local prebuilt = resolve_prebuilt(root)
+  local dev_bin = dev_target_binary(root)
+
+  -- When auto-build is on and we're in a source checkout, prefer a fresh dev
+  -- build over a possibly-stale prebuilt dev target.
+  if auto_build_enabled() and file_exists(root .. "apps/core/Cargo.toml") then
+    if prebuilt and prebuilt ~= dev_bin then
+      return prebuilt
+    end
+    if file_exists(dev_bin) and not is_dev_binary_stale(root, dev_bin) then
+      return dev_bin
+    end
+    return build_dev_binary(root)
+  end
+
+  if prebuilt then return prebuilt end
+
+  notify(
+    "mk-core binary not found. Place it at bin/" .. binary_name()
+      .. " (or nvim/bin/" .. binary_name() .. ") or set vim.g.markdown_kit_binary",
+    vim.log.levels.ERROR
+  )
+  return nil
+end
+
+-- ─── Port ─────────────────────────────────────────────────────────────────────
 
 local function is_port_free(port)
   local tcp = vim.uv.new_tcp()
@@ -102,25 +220,12 @@ local function is_port_free(port)
   return ok
 end
 
-local function get_port()
-  local p = tonumber(vim.g.markdown_kit_port or vim.g.mkdp_port)
-  if p and p > 0 then return math.floor(p) end
-  return 35831
-end
-
-local function get_theme()
-  local t = vim.g.markdown_kit_theme or vim.g.mkdp_theme or "dark"
-  return (t == "light") and "light" or "dark"
-end
-
--- ─── IPC — raw send, no debounce (Rust handles that) ─────────────────────────
+-- ─── IPC — raw send, Rust owns debounce/throttle ──────────────────────────────
 
 local function send(payload)
   if not is_running() then return end
   vim.fn.chansend(state.job, vim.fn.json_encode(payload) .. "\n")
 end
-
--- ─── Sync ─────────────────────────────────────────────────────────────────────
 
 local function sync_content()
   local bufnr = state.bufnr or vim.api.nvim_get_current_buf()
@@ -156,7 +261,6 @@ end
 local function attach_autocmds(bufnr)
   vim.api.nvim_clear_autocmds({ group = augroup, buffer = bufnr })
 
-  -- Gửi raw — Rust debounce
   vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI", "InsertLeave", "BufWritePost" }, {
     group = augroup, buffer = bufnr,
     callback = sync_content,
@@ -168,34 +272,20 @@ local function attach_autocmds(bufnr)
   vim.api.nvim_create_autocmd("BufHidden", {
     group = augroup, buffer = bufnr,
     callback = function()
-      if vim.g.markdown_kit_auto_close ~= 0 then M.stop() end
+      if auto_close_enabled() then M.stop() end
     end,
   })
   vim.api.nvim_create_autocmd("VimLeavePre", {
     group = augroup,
-    callback = M.stop,
+    callback = function() M.stop() end,
   })
 end
 
--- ─── Binary launcher ──────────────────────────────────────────────────────────
-
-local function ensure_binary()
-  local bin = resolve_binary()
-  if bin then
-    state.bin = bin
-    return bin
-  end
-
-  notify(
-    "mk-core binary not found. Place binary at bin/" .. binary_name()
-      .. " (or nvim/bin/" .. binary_name() .. ")"
-      .. " or set vim.g.markdown_kit_binary",
-    vim.log.levels.ERROR
-  )
-  return nil
-end
-
 -- ─── Public API ───────────────────────────────────────────────────────────────
+
+function M.setup(opts)
+  user_opts = vim.tbl_extend("force", user_opts, opts or {})
+end
 
 function M.start()
   if is_running() then
@@ -209,42 +299,30 @@ function M.start()
     return
   end
 
-  local bin = ensure_binary()
+  local root = project_root()
+  local bin = ensure_binary(root)
   if not bin then return end
 
+  state.bin   = bin
   state.port  = port
   state.bufnr = vim.api.nvim_get_current_buf()
 
   state.job = vim.fn.jobstart({ bin }, {
-    cwd    = project_root,
+    cwd    = root,
     detach = false,
 
     env = {
       MK_PORT         = tostring(port),
       MK_OPEN_BROWSER = "1",
       MK_BROWSER_URL  = ("http://" .. host .. ":" .. tostring(port) .. "/"),
-      -- tuning (optional, Rust has defaults)
-      -- MK_DEBOUNCE_MS        = "80",
-      -- MK_INSERT_DEBOUNCE_MS = "35",
-      -- MK_CURSOR_THROTTLE_MS = "16",
     },
 
-    -- Đọc stdout để biết server đã ready trước khi gửi content
+    -- Read stdout to learn when the server has bound before sending content.
     on_stdout = function(_, data)
       for _, line in ipairs(data) do
         if line:match("^mk%-core:ready:") then
           state.ready = true
-          -- Server đã bind — gửi content lần đầu
           vim.schedule(sync_content)
-        end
-      end
-    end,
-
-    on_stderr = function(_, data)
-      for _, line in ipairs(data) do
-        if line and line ~= "" then
-          -- chỉ log khi debug cần thiết
-          -- vim.schedule(function() notify("[stderr] " .. line) end)
         end
       end
     end,

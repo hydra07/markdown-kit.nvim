@@ -4,16 +4,24 @@ import { easeScroll } from "../utils/scroll";
 
 function useSourceBlocks(markdown: string) {
   const blocksRef = useRef<HTMLElement[]>([]);
+  // DOM depth per block, memoised per block-list rebuild. Walking the parent
+  // chain on every cursor move was O(blocks × depth) per keystroke.
+  const depthCacheRef = useRef<WeakMap<HTMLElement, number>>(new WeakMap());
   const getDepth = useCallback((node: HTMLElement) => {
+    const cached = depthCacheRef.current.get(node);
+    if (cached !== undefined) return cached;
     let depth = 0;
     let p: HTMLElement | null = node.parentElement;
     while (p) {
       depth += 1;
       p = p.parentElement;
     }
+    depthCacheRef.current.set(node, depth);
     return depth;
   }, []);
   const refreshBlocks = useCallback(() => {
+    // Block elements are replaced by morphdom on each render — drop stale depths.
+    depthCacheRef.current = new WeakMap();
     const root = document.querySelector(".markdown-body");
     if (root instanceof HTMLElement) {
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_ALL);

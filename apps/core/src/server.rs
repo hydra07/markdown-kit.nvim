@@ -9,7 +9,7 @@ use axum::{
 use axum_embed::ServeEmbed;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::sync::{Mutex, broadcast};
+use tokio::sync::{Mutex, Notify, broadcast};
 use tokio::time::{Duration, Instant};
 use tracing::{error, info};
 
@@ -135,106 +135,99 @@ pub async fn stdin_loop(tx: broadcast::Sender<String>, state: Arc<AppState>) {
     let _ins_debounce_ms = insert_debounce_ms();
     let throttle_ms = cursor_throttle_ms();
 
-    // Pending preview update (debounced).
+    // Pending preview update (debounced) + its deadline, guarded together so the
+    // worker observes a consistent snapshot. `Notify` wakes the worker only when
+    // there is work — no busy polling.
     let pending_preview: Arc<Mutex<Option<PreviewUpdatePayload>>> = Arc::new(Mutex::new(None));
-    // Pending cursor update (throttled).
     let pending_cursor: Arc<Mutex<Option<CursorUpdatePayload>>> = Arc::new(Mutex::new(None));
-
-    // Timer handles — we cancel & restart on each new event.
     let preview_deadline: Arc<Mutex<Option<Instant>>> = Arc::new(Mutex::new(None));
     let cursor_deadline: Arc<Mutex<Option<Instant>>> = Arc::new(Mutex::new(None));
+    let preview_notify = Arc::new(Notify::new());
+    let cursor_notify = Arc::new(Notify::new());
 
-    // Spawn debounce worker for preview updates.
+    // Debounce worker for preview updates — sleeps exactly until the deadline,
+    // re-arming if a newer keystroke pushes it back. Idle ⇒ parked on `notified`.
     {
         let tx = tx.clone();
         let state = state.clone();
         let pending = pending_preview.clone();
         let deadline_lock = preview_deadline.clone();
+        let notify = preview_notify.clone();
 
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(Duration::from_millis(8)).await;
+                // Park until there is pending work.
+                notify.notified().await;
 
-                let deadline = {
-                    let d = deadline_lock.lock().await;
-                    *d
-                };
+                loop {
+                    let Some(due) = *deadline_lock.lock().await else { break };
+                    if Instant::now() < due {
+                        tokio::time::sleep_until(due).await;
+                        continue; // deadline may have been pushed back — re-check
+                    }
 
-                let Some(due) = deadline else { continue };
-                if Instant::now() < due {
-                    continue;
-                }
+                    let payload = pending.lock().await.take();
+                    *deadline_lock.lock().await = None;
+                    let Some(p) = payload else { break };
 
-                // Deadline passed — take the pending payload and render.
-                let payload = {
-                    let mut p = pending.lock().await;
-                    p.take()
-                };
-                {
-                    let mut d = deadline_lock.lock().await;
-                    *d = None;
-                }
+                    // Rendering (markdown parse + syntax highlight) is CPU-heavy;
+                    // keep it off the async reactor.
+                    let markdown = p.markdown;
+                    let theme = p.theme.clone().unwrap_or_else(|| "dark".to_string());
+                    let html = tokio::task::spawn_blocking(move || render(&markdown, &theme))
+                        .await
+                        .unwrap_or_default();
 
-                let Some(p) = payload else { continue };
+                    let msg = OutgoingMsg::PreviewUpdate(OutPreviewUpdate {
+                        html,
+                        file_name: p.file_name,
+                        cursor_line: p.cursor_line,
+                        line_count: p.line_count,
+                        theme: p.theme,
+                        content_tick: p.content_tick,
+                    });
 
-                let theme = p.theme.as_deref().unwrap_or("dark");
-                let html = render(&p.markdown, theme);
-
-                let msg = OutgoingMsg::PreviewUpdate(OutPreviewUpdate {
-                    html: html.clone(),
-                    file_name: p.file_name,
-                    cursor_line: p.cursor_line,
-                    line_count: p.line_count,
-                    theme: p.theme,
-                    content_tick: p.content_tick,
-                });
-
-                if let Ok(json) = serde_json::to_string(&msg) {
-                    // Cache for new subscribers.
-                    *state.last_html.lock().await = Some(json.clone());
-                    let _ = tx.send(json);
+                    if let Ok(json) = serde_json::to_string(&msg) {
+                        // Cache for new subscribers.
+                        *state.last_html.lock().await = Some(json.clone());
+                        let _ = tx.send(json);
+                    }
+                    break;
                 }
             }
         });
     }
 
-    // Spawn throttle worker for cursor updates.
+    // Throttle worker for cursor updates — same park-until-deadline pattern.
     {
         let tx = tx.clone();
         let pending = pending_cursor.clone();
         let deadline_lock = cursor_deadline.clone();
+        let notify = cursor_notify.clone();
 
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(Duration::from_millis(4)).await;
+                notify.notified().await;
 
-                let deadline = {
-                    let d = deadline_lock.lock().await;
-                    *d
-                };
+                loop {
+                    let Some(due) = *deadline_lock.lock().await else { break };
+                    if Instant::now() < due {
+                        tokio::time::sleep_until(due).await;
+                        continue;
+                    }
 
-                let Some(due) = deadline else { continue };
-                if Instant::now() < due {
-                    continue;
-                }
+                    let payload = pending.lock().await.take();
+                    *deadline_lock.lock().await = None;
+                    let Some(p) = payload else { break };
 
-                let payload = {
-                    let mut p = pending.lock().await;
-                    p.take()
-                };
-                {
-                    let mut d = deadline_lock.lock().await;
-                    *d = None;
-                }
-
-                let Some(p) = payload else { continue };
-
-                let msg = OutgoingMsg::CursorUpdate(OutCursorUpdate {
-                    cursor_line: p.cursor_line,
-                    line_count: p.line_count,
-                });
-                if let Ok(json) = serde_json::to_string(&msg) {
-                    let _ = tx.send(json);
+                    let msg = OutgoingMsg::CursorUpdate(OutCursorUpdate {
+                        cursor_line: p.cursor_line,
+                        line_count: p.line_count,
+                    });
+                    if let Ok(json) = serde_json::to_string(&msg) {
+                        let _ = tx.send(json);
+                    }
+                    break;
                 }
             }
         });
@@ -253,23 +246,22 @@ pub async fn stdin_loop(tx: broadcast::Sender<String>, state: Arc<AppState>) {
 
                 match msg {
                     IncomingMsg::PreviewUpdate(p) => {
-                        // Determine debounce delay from a hint Lua can send,
-                        // or fall back to the normal debounce.
-                        // Lua sends raw events; insert-mode hint via `insertMode` field
-                        // would require schema change — for now use normal debounce.
-                        // If Lua wants to hint insert mode it can set MK_INSERT_DEBOUNCE_MS.
+                        // Trailing-edge debounce: every keystroke pushes the
+                        // deadline back; the worker renders once typing settles.
                         let delay = Duration::from_millis(debounce_ms);
 
                         *pending_preview.lock().await = Some(p);
                         *preview_deadline.lock().await = Some(Instant::now() + delay);
+                        preview_notify.notify_one();
                     }
 
                     IncomingMsg::CursorUpdate(p) => {
                         let delay = Duration::from_millis(throttle_ms);
                         let mut deadline = cursor_deadline.lock().await;
-                        // Only update deadline if none is set (leading-edge throttle).
+                        // Leading-edge throttle: only arm the deadline if idle.
                         if deadline.is_none() {
                             *deadline = Some(Instant::now() + delay);
+                            cursor_notify.notify_one();
                         }
                         *pending_cursor.lock().await = Some(p);
                     }
