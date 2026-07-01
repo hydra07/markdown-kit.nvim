@@ -59,38 +59,42 @@ function parseViewBoxSize(svg: SVGSVGElement): { w: number; h: number } | null {
 export function applyAdaptiveMermaidSizing(root: HTMLElement) {
   const blocks = root.querySelectorAll<HTMLElement>(".mermaid-rendered");
   blocks.forEach((block) => {
+    // Sizing is purely geometric (depends on the SVG viewBox/shape counts, not
+    // on theme or cursor), so it only needs to run once per diagram. morphdom
+    // drops this marker by replacing the node when the diagram actually changes.
+    if (block.dataset.mkSized === "1") return;
+
     const svg = block.querySelector("svg");
     if (!(svg instanceof SVGSVGElement)) return;
 
     const box = parseViewBoxSize(svg);
-    const textCount = svg.querySelectorAll("text").length;
+
+    // Size from the diagram's intrinsic width so small diagrams stay small and
+    // crisp instead of being stretched across the whole column. A gentle 1.25×
+    // scale keeps text legible; we never blow a 2-node flowchart up to full
+    // width. Falls back to a sensible default when there is no viewBox.
+    const aspect = box ? box.w / box.h : 1;
     const shapeCount = svg.querySelectorAll(
       "rect,circle,ellipse,polygon,path,line,polyline",
     ).length;
+    // Render the SVG at (close to) its intrinsic size instead of stretching it
+    // to fill the column — that is what made small/portrait diagrams balloon.
+    // Tall + few-node diagrams (e.g. a 2-box `A-->B`) are capped hard so a lone
+    // node never grows huge; wider/denser diagrams are allowed more room.
+    let cap: number;
+    if (aspect < 0.85) cap = shapeCount <= 6 ? 220 : 380;
+    else if (aspect > 1.6) cap = 680;
+    else cap = 520;
+    const intrinsic = box ? box.w : 360;
+    const targetPx = Math.round(Math.min(cap, Math.max(160, intrinsic)));
 
-    const complexity = textCount + shapeCount * 0.35;
-    const aspect = box ? box.w / box.h : 1;
-
-    let targetPct = 38 + complexity * 2.2;
-    if (box) {
-      if (box.w < 160) targetPct += 30;
-      else if (box.w < 300) targetPct += 16;
-      else if (box.w > 900) targetPct -= 6;
-    }
-    if (aspect > 1.8) targetPct += 6;
-    if (aspect < 0.7) targetPct -= 4;
-
-    const widthPct = Math.max(46, Math.min(100, Math.round(targetPct)));
-    const minWidthPx = Math.max(
-      220,
-      Math.min(780, Math.round(180 + complexity * 12)),
-    );
-
-    block.style.width = `${widthPct}%`;
+    block.style.width = "fit-content";
     block.style.maxWidth = "100%";
-    block.style.minWidth = `${minWidthPx}px`;
-    svg.style.width = "100%";
+    block.style.minWidth = "";
+    svg.style.width = `${targetPx}px`;
+    svg.style.maxWidth = "100%";
     svg.style.height = "auto";
+    block.dataset.mkSized = "1";
   });
 }
 

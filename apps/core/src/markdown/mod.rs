@@ -165,5 +165,16 @@ pub fn render(markdown: &str, _theme: &str) -> String {
     });
 
     pulldown_cmark::html::push_html(&mut html_output, events);
-    html_output
+    add_lazy_image_loading(&html_output)
+}
+
+/// Make every `<img>` defer its network + decode work until it scrolls near the
+/// viewport. For very long documents this avoids fetching/decoding hundreds of
+/// off-screen images up front. `<svg><image>` is intentionally untouched: the
+/// match requires `<img ` (with a trailing space), which `<image` never starts.
+fn add_lazy_image_loading(html: &str) -> String {
+    if !html.contains("<img ") {
+        return html.to_string();
+    }
+    html.replace("<img ", "<img loading=\"lazy\" decoding=\"async\" ")
 }

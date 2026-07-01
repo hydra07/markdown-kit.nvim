@@ -30,6 +30,7 @@ import {
   applyAdaptiveMermaidSizing,
   applyMermaidThemeToPreview,
 } from "./utils/mermaid";
+import { circularReveal } from "./utils/viewTransition";
 import "./app.css";
 
 /* ─── App ─────────────────────────────────────────────────────────────────── */
@@ -94,6 +95,70 @@ export function App() {
     }
   }, [oled]);
 
+  // Drive theme/oled from the document root so the View Transition snapshot
+  // (which is taken on the root element) reflects the active theme.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.theme = theme;
+    if (theme === "dark" && oled) root.dataset.oled = "true";
+    else delete root.dataset.oled;
+  }, [theme, oled]);
+
+  const pointFromEvent = (event?: MouseEvent) => ({
+    x: event?.clientX ?? window.innerWidth - 40,
+    y: event?.clientY ?? 40,
+  });
+
+  // Light/dark as a circular reveal from the click point: the new theme grows
+  // out when going dark, and contracts back when returning to light.
+  const toggleTheme = useCallback(
+    (event?: MouseEvent) => {
+      const next: Theme = theme === "dark" ? "light" : "dark";
+      const { x, y } = pointFromEvent(event);
+      circularReveal(
+        () => {
+          document.documentElement.dataset.theme = next;
+          // Recolour Mermaid SVGs synchronously so they are captured in the new
+          // snapshot — otherwise the effect repaints them a frame later and the
+          // diagrams flash at the end of the wipe.
+          if (contentRef.current) {
+            applyMermaidThemeToPreview(contentRef.current, next);
+          }
+          setTheme(next);
+        },
+        { x, y, expand: next === "dark" },
+      );
+    },
+    [theme],
+  );
+
+  // OLED pure-black also repaints the whole page, so it gets the same circular
+  // wipe — true black grows out when enabled, contracts when disabled.
+  const toggleOled = useCallback(
+    (event?: MouseEvent) => {
+      const next = !oled;
+      const { x, y } = pointFromEvent(event);
+      circularReveal(
+        () => {
+          const root = document.documentElement;
+          if (next) root.dataset.oled = "true";
+          else delete root.dataset.oled;
+          setOled(next);
+        },
+        { x, y, expand: next },
+      );
+    },
+    [oled],
+  );
+
+  // Follow-cursor toggles a vertical "tracking" sweep down the viewport — an
+  // effect that mirrors what the feature does (drives the scroll position).
+  const [followPulse, setFollowPulse] = useState(0);
+  const toggleFollow = useCallback(() => {
+    setFollowPulse((p) => p + 1);
+    setFollowCursor((v) => !v);
+  }, []);
+
   // ── Content rendering ──────────────────────────────────────────────────────
   useLayoutEffect(() => {
     if (!contentRef.current) return;
@@ -116,6 +181,26 @@ export function App() {
             toEl.getAttribute("data-svg-b64")
         ) {
           return false;
+        }
+        // Skip re-diffing a code block whose source is unchanged: keep the
+        // existing (already-decorated, already-highlighted) DOM and only sync
+        // its source-line range so cursor mapping stays correct after edits
+        // above it. Avoids re-walking every <pre> on each keystroke and keeps
+        // the injected copy button / language label intact.
+        if (
+          fromEl.classList.contains("hljs") &&
+          toEl.classList.contains("hljs")
+        ) {
+          const fromCode = fromEl.querySelector("code")?.textContent;
+          const toCode = toEl.querySelector("code")?.textContent;
+          if (fromCode != null && fromCode === toCode) {
+            for (const name of ["data-src-start", "data-src-end"] as const) {
+              const v = toEl.getAttribute(name);
+              if (v === null) fromEl.removeAttribute(name);
+              else fromEl.setAttribute(name, v);
+            }
+            return false;
+          }
         }
         return true;
       },
@@ -151,6 +236,15 @@ export function App() {
       btn.setAttribute("aria-label", "Copy code block");
       pre.appendChild(btn);
     });
+
+    // Virtualize once the document is large enough that off-screen paint cost
+    // matters. childElementCount counts top-level blocks (display:contents
+    // wrappers + lists + code/mermaid), a cheap proxy for document size.
+    const VIRTUALIZE_THRESHOLD = 400;
+    contentRef.current.classList.toggle(
+      "mk-virtualize",
+      contentRef.current.childElementCount > VIRTUALIZE_THRESHOLD,
+    );
   }, [html, theme]);
 
   // Theme changes should immediately repaint existing Mermaid SVGs.
@@ -254,12 +348,18 @@ export function App() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div
-      data-theme={theme}
-      data-oled={theme === "dark" && oled ? "true" : undefined}
-      className="app-root min-h-dvh w-full bg-(--bg-page) text-(--fg) antialiased transition-colors duration-300"
-    >
+    <div className="app-root min-h-dvh w-full bg-(--bg-page) text-(--fg) antialiased">
+
       <ReadingProgress progress={progress} />
+
+      {followPulse > 0 && (
+        <span
+          key={followPulse}
+          className="mk-follow-sweep"
+          data-on={followCursor ? "true" : undefined}
+          aria-hidden="true"
+        />
+      )}
 
       <div className="app-shell">
         <header className="app-header">
@@ -270,18 +370,20 @@ export function App() {
             </span>
           </div>
 
-          {status === "connected" && <LiveBadge />}
-          <FollowCursorToggle
-            enabled={followCursor}
-            onToggle={() => setFollowCursor((v) => !v)}
-          />
-          {theme === "dark" && (
-            <OledToggle enabled={oled} onToggle={() => setOled((v) => !v)} />
-          )}
-          <ThemeToggle
-            theme={theme}
-            onToggle={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
-          />
+          <div className={`mk-live-slot${status === "connected" ? " is-open" : ""}`}>
+            <LiveBadge />
+          </div>
+
+          <div className="mk-toolbar">
+            <FollowCursorToggle enabled={followCursor} onToggle={toggleFollow} />
+            {/* Kept mounted and collapsed (not unmounted) in light mode so
+                switching theme animates smoothly instead of snapping the
+                toolbar width and flickering. */}
+            <div className={`mk-oled-slot${theme === "dark" ? " is-open" : ""}`}>
+              <OledToggle enabled={oled} onToggle={toggleOled} />
+            </div>
+            <ThemeToggle theme={theme} onToggle={toggleTheme} />
+          </div>
         </header>
 
         <div className="app-layout">
@@ -289,11 +391,26 @@ export function App() {
             <Toc items={tocItems} activeId={activeId} onSelect={scrollToId} />
           </aside>
 
-          <main className="app-main">
+          <main className="app-main app-main-rel">
             <section
               ref={contentRef}
               className="app-content markdown-body prose max-w-none border border-transparent bg-(--glass) text-[0.9375rem] leading-[1.78] text-(--fg) shadow-(--shadow-md) backdrop-blur-md transition-[background-color,border-color,color] duration-300 hover:border-(--border-soft)"
             />
+            {!html.trim() && (
+              <div className="app-empty" role="status">
+                <IconFile />
+                <p className="app-empty-title">
+                  {status === "connected"
+                    ? "Waiting for content"
+                    : "Connecting to preview"}
+                </p>
+                <p className="app-empty-hint">
+                  {status === "connected"
+                    ? "Start typing in Neovim — the rendered Markdown shows up here live."
+                    : "Hang tight while the preview server connects…"}
+                </p>
+              </div>
+            )}
           </main>
         </div>
 

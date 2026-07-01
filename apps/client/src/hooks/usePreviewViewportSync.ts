@@ -24,32 +24,22 @@ function useSourceBlocks(markdown: string) {
     depthCacheRef.current = new WeakMap();
     const root = document.querySelector(".markdown-body");
     if (root instanceof HTMLElement) {
-      const walker = document.createTreeWalker(root, NodeFilter.SHOW_ALL);
-      let pendingStart: string | null = null;
-      let pendingEnd: string | null = null;
-      let current: Node | null = walker.nextNode();
-      while (current) {
-        if (current.nodeType === Node.COMMENT_NODE) {
-          const text = current.nodeValue ?? "";
-          const match = text.match(/^\s*src:(\d+):(\d+)\s*$/);
-          if (match) {
-            pendingStart = match[1];
-            pendingEnd = match[2];
+      // The backend emits `<!-- src:a:b -->` directly before the list/item it
+      // annotates, so they are always siblings. Walking only comment nodes
+      // (instead of every node in the tree) keeps this O(list markers) rather
+      // than O(total DOM nodes) — critical for very long documents.
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_COMMENT);
+      let comment = walker.nextNode();
+      while (comment) {
+        const match = (comment.nodeValue ?? "").match(/^\s*src:(\d+):(\d+)\s*$/);
+        if (match) {
+          const el = (comment as Comment).nextElementSibling;
+          if (el instanceof HTMLElement && !el.hasAttribute("data-src-start")) {
+            el.setAttribute("data-src-start", match[1]);
+            el.setAttribute("data-src-end", match[2]);
           }
-        } else if (
-          pendingStart &&
-          pendingEnd &&
-          current.nodeType === Node.ELEMENT_NODE &&
-          current instanceof HTMLElement
-        ) {
-          if (!current.hasAttribute("data-src-start")) {
-            current.setAttribute("data-src-start", pendingStart);
-            current.setAttribute("data-src-end", pendingEnd);
-          }
-          pendingStart = null;
-          pendingEnd = null;
         }
-        current = walker.nextNode();
+        comment = walker.nextNode();
       }
       blocksRef.current = Array.from(root.querySelectorAll<HTMLElement>("[data-src-start][data-src-end]"));
     } else {

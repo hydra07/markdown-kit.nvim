@@ -38,9 +38,11 @@
 
   /* ── Typography ── */
   --font-sans:
-    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont,
+    "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-mono:
-    "JetBrains Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+    "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "Cascadia Code",
+    "Cascadia Mono", Menlo, Consolas, monospace;
 
   --header-h: 3.25rem;
 }
@@ -142,6 +144,123 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   THEME VIEW TRANSITION — circular reveal of the new theme
+   The JS animates `::view-transition-new(root)`'s clip-path from a point at
+   the toggle; here we kill the default cross-fade and stack the incoming
+   theme above the outgoing one so the wipe reads cleanly.
+   ═══════════════════════════════════════════════════════════════════ */
+/* Kill the default cross-fade; our directional clip keyframes drive the wipe. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+/* Expanding wipe (toggling on) — the incoming state sits on top and grows out
+   of the click point over the outgoing one. */
+.vt-expand::view-transition-old(root) {
+  z-index: 1;
+}
+.vt-expand::view-transition-new(root) {
+  z-index: 2;
+  animation: mk-vt-in var(--vt-dur, 520ms) cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Contracting wipe (toggling off) — the outgoing state sits on top and shrinks
+   back into the point, revealing the incoming state beneath it. */
+.vt-contract::view-transition-new(root) {
+  z-index: 1;
+}
+.vt-contract::view-transition-old(root) {
+  z-index: 2;
+  animation: mk-vt-out var(--vt-dur, 520ms) cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes mk-vt-in {
+  from {
+    clip-path: circle(0 at var(--vt-x) var(--vt-y));
+  }
+  to {
+    clip-path: circle(var(--vt-r) at var(--vt-x) var(--vt-y));
+  }
+}
+@keyframes mk-vt-out {
+  from {
+    clip-path: circle(var(--vt-r) at var(--vt-x) var(--vt-y));
+  }
+  to {
+    clip-path: circle(0 at var(--vt-x) var(--vt-y));
+  }
+}
+/* While the wipe plays, make the theme swap instant everywhere so no per-element
+   colour transition keeps animating once the snapshot overlay is removed (that
+   leftover interpolation is what flashes at the end). Web Animations (the clip
+   wipe) and CSS @keyframes (ripple/sweep) are unaffected. */
+.vt-active *,
+.vt-active *::before,
+.vt-active *::after {
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
+}
+
+/* ── Follow-cursor sweep — an accent line that runs down (enable) or up
+      (disable) the viewport, echoing the scroll-tracking it controls. ── */
+.mk-follow-sweep {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  z-index: 55;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent) 35%,
+    var(--accent-hi) 65%,
+    transparent
+  );
+  box-shadow: 0 0 14px var(--accent-glow);
+  opacity: 0;
+  animation: mk-sweep-down 640ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+.mk-follow-sweep:not([data-on]) {
+  animation-name: mk-sweep-up;
+}
+@keyframes mk-sweep-down {
+  0% {
+    transform: translateY(-4px);
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.95;
+  }
+  85% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: translateY(100dvh);
+    opacity: 0;
+  }
+}
+@keyframes mk-sweep-up {
+  0% {
+    transform: translateY(100dvh);
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.7;
+  }
+  85% {
+    opacity: 0.6;
+  }
+  100% {
+    transform: translateY(-4px);
+    opacity: 0;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    READING PROGRESS — thin fixed bar tracking scroll position
    ═══════════════════════════════════════════════════════════════════ */
 .app-progress {
@@ -200,6 +319,42 @@
   display: flex;
   flex-direction: column;
 }
+.app-main-rel {
+  position: relative;
+}
+
+/* ── Empty / waiting state — centred over the (empty) content surface ── */
+.app-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2rem;
+  text-align: center;
+  color: var(--fg-subtle);
+  pointer-events: none;
+}
+.app-empty svg {
+  width: 1.75rem;
+  height: 1.75rem;
+  opacity: 0.5;
+  margin-bottom: 0.25rem;
+}
+.app-empty-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: var(--fg-muted);
+}
+.app-empty-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  max-width: 24rem;
+  line-height: 1.5;
+}
 
 .app-content {
   flex: 1;
@@ -223,6 +378,32 @@
 @media (min-width: 1025px) {
   .app-content {
     padding: 2.75rem 3.25rem !important;
+  }
+}
+
+/* ── Wide desktop (16:9 / 1080p+) — use the horizontal space instead of a
+      narrow centred column with huge empty margins. ── */
+@media (min-width: 1536px) {
+  .app-shell {
+    max-width: 88rem;
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+  .app-layout {
+    gap: 3rem;
+  }
+  .app-sidebar {
+    flex: 0 0 16.5rem;
+    width: 16.5rem;
+  }
+  .app-content {
+    padding: 3rem 4rem !important;
+  }
+}
+
+@media (min-width: 1920px) {
+  .app-shell {
+    max-width: 96rem;
   }
 }
 
@@ -299,6 +480,166 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   TOOLBAR — uniform square icon buttons
+   ═══════════════════════════════════════════════════════════════════ */
+.mk-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding-left: 0.4rem;
+  margin-left: 0.15rem;
+  border-left: 1px solid var(--border-soft);
+}
+
+.mk-icon-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 2.1rem;
+  width: 2.1rem;
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-subtle);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    transform 120ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.mk-icon-btn:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+.mk-icon-btn:active {
+  transform: scale(0.9);
+}
+.mk-icon-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.mk-icon-btn[data-on="true"] {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.mk-icon-btn[data-on="true"]:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.mk-icon-btn-glyph {
+  display: grid;
+  place-items: center;
+  /* Taegeuk spin: rotates to 180° when turned on, unwinds back when off. The
+     overshoot easing gives it a wound-up, springy half-turn. */
+  transition: transform 520ms cubic-bezier(0.5, 1.45, 0.4, 1);
+}
+.mk-icon-btn[data-on="true"] .mk-icon-btn-glyph {
+  transform: rotate(180deg) scale(1.06);
+}
+
+/* ── Ripple — a ring that radiates outward from the button on every press ── */
+.mk-ripple {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2.1rem;
+  height: 2.1rem;
+  margin: -1.05rem 0 0 -1.05rem;
+  border-radius: 999px;
+  pointer-events: none;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--accent) 34%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 20%, transparent) 42%,
+    transparent 68%
+  );
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 38%, transparent);
+  transform: scale(0.35);
+  opacity: 0.9;
+  animation: mk-ripple 620ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes mk-ripple {
+  0% {
+    transform: scale(0.35);
+    opacity: 0.85;
+  }
+  70% {
+    opacity: 0.35;
+  }
+  100% {
+    transform: scale(2.7);
+    opacity: 0;
+  }
+}
+
+/* ── Theme button: sun ⇄ moon cross-fade + rotate ── */
+.mk-theme-swap {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+}
+.mk-theme-swap > span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  transition:
+    opacity 240ms ease,
+    transform 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.mk-theme-sun {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+}
+.mk-theme-moon {
+  opacity: 0;
+  transform: rotate(-90deg) scale(0.6);
+}
+.mk-theme-swap.is-dark .mk-theme-sun {
+  opacity: 0;
+  transform: rotate(90deg) scale(0.6);
+}
+.mk-theme-swap.is-dark .mk-theme-moon {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+}
+
+/* ── Collapsible slots — animate width/opacity instead of unmounting, so
+      toggling theme / connection state never snaps the toolbar layout. ── */
+.mk-oled-slot,
+.mk-live-slot {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  max-width: 0;
+  opacity: 0;
+  transform: scale(0.8);
+  transition:
+    max-width 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 200ms ease,
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    margin 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.mk-oled-slot.is-open {
+  max-width: 2.5rem;
+  opacity: 1;
+  transform: scale(1);
+}
+.mk-live-slot.is-open {
+  max-width: 6rem;
+  opacity: 1;
+  transform: scale(1);
+  margin-right: 0.1rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    TABLE OF CONTENTS
    ═══════════════════════════════════════════════════════════════════ */
 .app-toc-title {
@@ -370,6 +711,7 @@
     background: var(--bg-elev);
     border: 1px solid var(--border-soft);
     box-shadow: var(--shadow-sm);
+    animation: mk-fade-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
   .markdown-body {
@@ -473,7 +815,9 @@
     border: 1px solid var(--border-soft);
     background: var(--bg-code);
     overflow-x: auto;
-    padding: 2.35rem 1.15rem 1.1rem;
+    /* Header strip height (lang label + copy button) — kept in sync with the
+       unlayered `.markdown-body pre.hljs` override below that beats prose. */
+    padding: 2.5rem 1.15rem 1.1rem;
     font-size: 0.84rem;
     line-height: 1.7;
     box-shadow: var(--shadow-sm);
@@ -508,8 +852,8 @@
 
   /* Mermaid */
   .markdown-body :where(.mermaid-rendered) {
-    display: inline-block;
-    margin: 1rem 0;
+    display: block;
+    margin: 1.2rem auto;
     max-width: 100%;
     border: 1px solid var(--border-soft);
     border-radius: var(--radius);
@@ -592,17 +936,43 @@
     margin-bottom: 0;
   }
 
-  /* Task list */
-  .markdown-body :where(.task-list-item) {
+  /* Task list — pulldown-cmark emits bare `<li><input type=checkbox>` with no
+     class, so target the checkbox directly to drop the bullet + style the box. */
+  .markdown-body :where(.task-list-item),
+  .markdown-body :where(li:has(> input[type="checkbox"])) {
     list-style: none;
-    margin-left: -1.5em;
+    margin-left: -1.4em;
   }
-  .markdown-body :where(.task-list-item input) {
-    margin-right: 0.5em;
-    vertical-align: middle;
-    accent-color: var(--accent);
-    width: 0.95em;
-    height: 0.95em;
+  .markdown-body :where(li > input[type="checkbox"]) {
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    margin: 0 0.55em 0 0;
+    vertical-align: -0.12em;
+    width: 1.05em;
+    height: 1.05em;
+    border: 1.5px solid var(--border);
+    border-radius: 0.34em;
+    background: var(--bg-code);
+    cursor: default;
+    transition:
+      background-color 130ms ease,
+      border-color 130ms ease;
+  }
+  .markdown-body :where(li > input[type="checkbox"]:checked) {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .markdown-body :where(li > input[type="checkbox"]:checked)::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 46%;
+    width: 0.3em;
+    height: 0.56em;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: translate(-50%, -55%) rotate(45deg);
   }
 
   /* Images */
@@ -768,6 +1138,17 @@
   font-weight: 660;
 }
 
+@keyframes mk-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes dot-pulse {
   0%,
   100% {
@@ -778,6 +1159,34 @@
     opacity: 0.5;
     transform: scale(0.9);
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   VIRTUALIZATION — very long documents
+   Toggled by JS (class .mk-virtualize) once the block count crosses a
+   threshold. `content-visibility:auto` lets the browser skip layout +
+   paint for off-screen blocks; `contain-intrinsic-size` reserves a
+   plausible placeholder height so the scrollbar stays stable.
+
+   Only self-contained, paint-heavy blocks are virtualized (code, mermaid,
+   tables, images). Paragraphs/headings stay live so cursor-follow scroll
+   and the current-line highlight remain pixel-accurate.
+   ═══════════════════════════════════════════════════════════════════ */
+.markdown-body.mk-virtualize :where(pre.hljs) {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 320px;
+}
+.markdown-body.mk-virtualize :where(table) {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 240px;
+}
+.markdown-body.mk-virtualize :where(.mermaid-rendered) {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 360px;
+}
+.markdown-body.mk-virtualize :where(img) {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 280px;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -808,9 +1217,16 @@
     transition: none !important;
   }
   .app-progress-bar,
-  .markdown-body .cursor-line-active {
+  .markdown-body .cursor-line-active,
+  .app-content,
+  .mk-icon-btn-glyph,
+  .mk-theme-swap > span {
     transition: none !important;
     animation: none !important;
+  }
+  .mk-ripple,
+  .mk-follow-sweep {
+    display: none !important;
   }
 }
 
