@@ -22,6 +22,9 @@ pub mod __test_support {
 
 /// Convert a raw Markdown string to an HTML fragment.
 pub fn render(markdown: &str, _theme: &str) -> String {
+    // Each stage borrows straight through when its trigger pattern is absent,
+    // so a plain document (no PlantUML/math/sized-images — the common case)
+    // costs zero extra allocations here instead of three full-buffer copies.
     let preprocessed = preprocess::preprocess_plantuml(markdown);
     let preprocessed = preprocess::preprocess_math(&preprocessed);
     let preprocessed = preprocess::preprocess_images(&preprocessed);

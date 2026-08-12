@@ -2,3 +2,5 @@
 // type declarations, which trips `tsc --noEmit` under strict module resolution.
 declare module "@fontsource-variable/inter";
 declare module "@fontsource-variable/jetbrains-mono";
+declare module "@fontsource-variable/fraunces/opsz.css";
+declare module "@fontsource-variable/fraunces/opsz-italic.css";

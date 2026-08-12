@@ -1,10 +1,12 @@
 use axum::{
     Router,
     extract::{
-        State, WebSocketUpgrade,
+        Request, State, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
-    response::IntoResponse,
+    http::header::{CACHE_CONTROL, HeaderValue},
+    middleware::Next,
+    response::{IntoResponse, Response},
 };
 use axum_embed::ServeEmbed;
 use serde::{Deserialize, Serialize};
@@ -33,6 +35,23 @@ pub struct AppState {
 
 pub fn static_routes() -> Router<Arc<AppState>> {
     Router::new().fallback_service(ServeEmbed::<ClientAssets>::new())
+}
+
+/// Set sensible caching so a rebuilt binary is picked up on reload:
+/// content-hashed `/assets/*` are immutable and cached forever, while the HTML
+/// entry point must always be revalidated (otherwise the browser's heuristic
+/// cache can keep serving an old `index.html` that points at stale asset hashes).
+pub async fn cache_control(req: Request, next: Next) -> Response {
+    let immutable = req.uri().path().starts_with("/assets/");
+    let mut res = next.run(req).await;
+    let value = if immutable {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-cache"
+    };
+    res.headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static(value));
+    res
 }
 
 // ── Wire protocol ───────────────────────────────────────────────────────────

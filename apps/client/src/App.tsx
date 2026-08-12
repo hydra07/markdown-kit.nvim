@@ -394,7 +394,7 @@ export function App() {
           <main className="app-main app-main-rel">
             <section
               ref={contentRef}
-              className="app-content markdown-body prose max-w-none border border-transparent bg-(--glass) text-[0.9375rem] leading-[1.78] text-(--fg) shadow-(--shadow-md) backdrop-blur-md transition-[background-color,border-color,color] duration-300 hover:border-(--border-soft)"
+              className="app-content markdown-body prose max-w-none text-[0.9375rem] leading-[1.78] text-(--fg) transition-colors duration-300"
             />
             {!html.trim() && (
               <div className="app-empty" role="status">
