@@ -31,13 +31,31 @@ fn edge_labels_not_wrapped_in_extra_quotes() {
     assert!(!m.contains("|\"yes\"|"));
 }
 
+// Was `include_str!("../../../test.md")` — test.md is a gitignored scratch
+// file (see `.gitignore`'s "# old" section), so it never exists in a fresh
+// clone or CI checkout and the test binary failed to compile there. Inlined
+// the exact fence content it was reading so the test still exercises the
+// same legacy flowchart.js sample without depending on untracked local state.
+const SAMPLE_LEGACY_FLOWCHART: &str = "\
+st=>start: Start|past:>http://www.google.com[blank]
+e=>end: End|future:>http://www.google.com
+op1=>operation: My Operation|past
+op2=>operation: Stuff|current
+sub1=>subroutine: My Subroutine|invalid
+cond=>condition: Yes
+or No?|approved:>http://www.google.com
+c2=>condition: Good idea|rejected
+io=>inputoutput: catch something...|future
+
+st->op1(right)->cond
+cond(yes, right)->c2
+cond(no)->sub1(left)->op1
+c2(yes)->io->e
+c2(no)->op2->e
+";
+
 #[test]
 fn sample_test_md_renders_in_mermaid_rs() {
-    let src = include_str!("../../../test.md");
-    let start = src.find("```flowchart").expect("fence");
-    let body_start = src[start..].find('\n').expect("nl") + start + 1;
-    let end = src[body_start..].find("```").expect("close") + body_start;
-    let block = &src[body_start..end];
-    let m = legacy_flowchart_js_to_mermaid(block).expect("convert");
+    let m = legacy_flowchart_js_to_mermaid(SAMPLE_LEGACY_FLOWCHART).expect("convert");
     assert!(mermaid_rs_renderer::render(&m).is_ok());
 }
