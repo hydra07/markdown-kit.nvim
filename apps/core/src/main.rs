@@ -34,6 +34,7 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/ws", get(server::ws_handler))
         .merge(server::static_routes())
+        .layer(axum::middleware::from_fn(server::cache_control))
         .with_state(state);
 
     let addr = format!("127.0.0.1:{port}");

@@ -1,6 +1,17 @@
+use std::borrow::Cow;
+
 use crate::markdown::escape::escape_html;
 
-pub(crate) fn preprocess_plantuml(md: &str) -> String {
+/// Render debounces to ~80ms but still re-runs the full preprocessing chain on
+/// every settled keystroke. Most documents never touch PlantUML/math/sized
+/// images, so each stage returns `Cow::Borrowed` untouched input when its
+/// trigger pattern isn't present — skipping a full-buffer allocation + copy
+/// that would otherwise happen on every single render.
+pub(crate) fn preprocess_plantuml(md: &str) -> Cow<'_, str> {
+    if !md.contains("@startuml") {
+        return Cow::Borrowed(md);
+    }
+
     let mut out = String::with_capacity(md.len());
     let mut rest = md;
 
@@ -19,14 +30,18 @@ pub(crate) fn preprocess_plantuml(md: &str) -> String {
             }
         } else {
             out.push_str(&rest[start..]);
-            return out;
+            return Cow::Owned(out);
         }
     }
     out.push_str(rest);
-    out
+    Cow::Owned(out)
 }
 
-pub(crate) fn preprocess_math(md: &str) -> String {
+pub(crate) fn preprocess_math(md: &str) -> Cow<'_, str> {
+    if !md.contains('$') {
+        return Cow::Borrowed(md);
+    }
+
     let mut out = String::with_capacity(md.len() + 64);
     let chars: Vec<char> = md.chars().collect();
     let len = chars.len();
@@ -61,7 +76,7 @@ pub(crate) fn preprocess_math(md: &str) -> String {
         out.push(chars[i]);
         i += 1;
     }
-    out
+    Cow::Owned(out)
 }
 
 fn find_closing(chars: &[char], from: usize, needle: &str) -> Option<usize> {
@@ -97,7 +112,11 @@ fn find_closing_inline(chars: &[char], from: usize) -> Option<usize> {
     None
 }
 
-pub(crate) fn preprocess_images(md: &str) -> String {
+pub(crate) fn preprocess_images(md: &str) -> Cow<'_, str> {
+    if !md.contains("![") {
+        return Cow::Borrowed(md);
+    }
+
     let mut out = String::with_capacity(md.len());
     let mut chars = md.char_indices().peekable();
 
@@ -113,7 +132,7 @@ pub(crate) fn preprocess_images(md: &str) -> String {
         }
         out.push(c);
     }
-    out
+    Cow::Owned(out)
 }
 
 fn try_parse_image(s: &str) -> Option<(usize, String)> {
