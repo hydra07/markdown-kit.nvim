@@ -78,20 +78,28 @@
   --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.4), 0 2px 10px rgba(0, 0, 0, 0.26);
 }
 
-/* ── OLED — true black (only in dark). Optimised for OLED panels:
-      page is #000 so pixels switch off; surfaces stay barely lifted. ── */
+/* ── OLED — true black, reading-first. Every surface token collapses to the
+      *same* pure black as the page: code blocks, mermaid containers, table
+      bodies, the header, glass panels. On OLED that means those pixels are
+      genuinely off, not "a slightly lighter black" — which is what actually
+      strains the eyes over a long document, since it reads as a patchwork
+      of near-identical-but-not-quite shades rather than one calm field.
+      Structure now comes entirely from borders (bumped up slightly to
+      still read clearly with no background contrast to lean on) instead of
+      background fills, so blocks stay legible without adding visual noise
+      that competes with the text itself. ── */
 [data-theme="dark"][data-oled="true"] {
-  --bg: #0b0b0d;
+  --bg: #000000;
   --bg-page: #000000;
-  --bg-elev: #0e0e11;
-  --bg-code: #0d0d10;
-  --bg-hover: #16161a;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-soft: rgba(255, 255, 255, 0.05);
-  --glass: rgba(10, 10, 12, 0.82);
-  --glass-soft: rgba(8, 8, 10, 0.7);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.6);
-  --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.7), 0 2px 10px rgba(0, 0, 0, 0.5);
+  --bg-elev: #000000;
+  --bg-code: #000000;
+  --bg-hover: #0a0a0a;
+  --border: rgba(255, 255, 255, 0.14);
+  --border-soft: rgba(255, 255, 255, 0.09);
+  --glass: rgba(0, 0, 0, 0.92);
+  --glass-soft: rgba(0, 0, 0, 0.85);
+  --shadow-sm: none;
+  --shadow-md: none;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -845,16 +853,20 @@
     vertical-align: top;
   }
 
-  /* Tables */
+  /* Tables — sized to their own content (see the unlayered override below
+     for why `display`/`width` live there instead of here), scroll handled
+     by the `.mk-table-scroll` wrapper the backend renders around every
+     table. */
   .markdown-body :where(table) {
-    display: block;
-    width: 100%;
     border-collapse: collapse;
-    overflow-x: auto;
     font-size: 0.875rem;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    overflow: hidden;
+  }
+  .mk-table-scroll {
+    overflow-x: auto;
+    max-width: 100%;
+    margin: 1.4em 0;
   }
   .markdown-body :where(th) {
     background: var(--bg-code) !important;
@@ -1028,9 +1040,51 @@
 .markdown-body pre.hljs {
   color: #1c2024;
   /* Higher specificity than Tailwind prose's :where(pre) — guarantees the
-     header strip (language label + copy button) clears the first code line. */
+     header strip (language label + copy button) clears the first code line.
+     `background` needs the same treatment: Tailwind Typography's own `pre`
+     rule was winning over our themed `@layer components` one regardless of
+     the `:where(pre.hljs)` selector there, leaving every code block on its
+     own hardcoded slate-blue instead of `--bg-code` — invisible in normal
+     dark mode (a plausible-looking dark box either way) but exactly the
+     kind of stray non-black patch OLED mode is supposed to not have. */
   padding: 2.5rem 1.15rem 1.1rem !important;
+  background: var(--bg-code) !important;
+  border: 1px solid var(--border-soft) !important;
+  border-radius: var(--radius) !important;
 }
+/* Same Tailwind-default-wins issue for the two other `<pre>` variants: the
+   PlantUML source block (never converted to a diagram, always shown as
+   text) and the mermaid-render-failure fallback. */
+.markdown-body pre.plantuml,
+.markdown-body pre.mermaid {
+  margin: 1.4em 0;
+  padding: 1.1rem 1.15rem !important;
+  border-radius: var(--radius) !important;
+  border: 1px solid var(--border-soft) !important;
+  background: var(--bg-code) !important;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  line-height: 1.7;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/* Same "Tailwind Typography's own rule out-cascades @layer components"
+   issue as `pre` above, this time for `table`: its default forces
+   `width: 100%`, which — combined with `table-layout: auto` sizing columns
+   by their actual content — left a large empty gap to the right of a
+   table's last column whenever the content was narrower than the column
+   (e.g. a short 3-column sample table). Sizing to content here instead;
+   `.mk-table-scroll` (the wrapper the backend renders around every table)
+   owns making a genuinely wide table scroll. */
+.markdown-body table {
+  display: table;
+  width: auto;
+  max-width: 100%;
+  margin: 0;
+}
+
 .hljs-comment,
 .hljs-meta {
   color: #8a8f9a;
@@ -1161,7 +1215,7 @@
   content-visibility: auto;
   contain-intrinsic-size: auto 320px;
 }
-.markdown-body.mk-virtualize :where(table) {
+.markdown-body.mk-virtualize .mk-table-scroll {
   content-visibility: auto;
   contain-intrinsic-size: auto 240px;
 }
@@ -1186,8 +1240,28 @@
     border-radius: 0;
     font-size: 0.79rem;
   }
-  .markdown-body :where(table) {
+  /* Tables previously only shrank font-size on mobile and stayed boxed
+     inside the content padding — inconsistent with code blocks right above,
+     which bleed full-width for more breathing room. The table itself keeps
+     its own border/radius regardless of size (it's content-sized now, not
+     forced to fill the column — see the unlayered override above), but its
+     `.mk-table-scroll` wrapper gets a bit more room to scroll within before
+     hitting the edge, for whichever tables are genuinely wide enough to
+     need it. Cell padding also tightens so a few extra columns fit before
+     that scroll has to kick in at all. */
+  .mk-table-scroll {
+    margin-left: -1rem;
+    margin-right: -1rem;
+    max-width: calc(100% + 2rem);
+  }
+  .markdown-body table {
     font-size: 0.8rem;
+  }
+  .markdown-body :where(th) {
+    padding: 0.5rem 0.6rem;
+  }
+  .markdown-body :where(td) {
+    padding: 0.45rem 0.6rem;
   }
 }
 

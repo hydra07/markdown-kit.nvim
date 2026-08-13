@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from "preact/hooks";
 import { toInt } from "../utils/number";
-import { easeScroll } from "../utils/scroll";
+import { createFollowScroller } from "../utils/scroll";
 
 function useSourceBlocks(markdown: string) {
   const blocksRef = useRef<HTMLElement[]>([]);
@@ -153,7 +153,8 @@ export function usePreviewCurrentBlockHighlight(markdown: string) {
 export function usePreviewFollowScroll(markdown: string, followCursor: boolean) {
   const cursorLineRef = useRef(1);
   const lineCountRef = useRef(1);
-  const scrollRafRef = useRef<number | null>(null);
+  const scrollerRef = useRef<ReturnType<typeof createFollowScroller> | null>(null);
+  if (scrollerRef.current === null) scrollerRef.current = createFollowScroller();
   const followCursorRef = useRef(followCursor);
   const { findBestBlock } = useSourceBlocks(markdown);
 
@@ -173,7 +174,7 @@ export function usePreviewFollowScroll(markdown: string, followCursor: boolean) 
     const ratio = Math.max(0, Math.min(1, (line - 1) / (count - 1)));
     const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
     if (maxScroll <= 0) return;
-    easeScroll(Math.round(maxScroll * ratio), scrollRafRef);
+    scrollerRef.current!.scrollTo(Math.round(maxScroll * ratio));
   }, []);
 
   const scrollToBlock = useCallback(
@@ -188,15 +189,17 @@ export function usePreviewFollowScroll(markdown: string, followCursor: boolean) 
       const viewportAnchor = window.innerHeight * 0.28;
       const target = Math.max(0, Math.round(absoluteTop - viewportAnchor));
 
-      if (Math.abs(target - window.scrollY) > window.innerHeight * 1.8) {
-        if (scrollRafRef.current !== null) {
-          cancelAnimationFrame(scrollRafRef.current);
-          scrollRafRef.current = null;
-        }
-        window.scrollTo(0, target);
+      // The ease's convergence time no longer grows with distance (see
+      // scroll.ts), so this hard cut is only for genuinely extreme jumps —
+      // e.g. `G` in a huge file — where even a fast ease would still read
+      // as a distracting whoosh across thousands of pixels. Threshold raised
+      // well above the ease's own "fast" zone (1.2vh) so there's no jarring
+      // seam between "eases quickly" and "snaps instantly".
+      if (Math.abs(target - window.scrollY) > window.innerHeight * 4) {
+        scrollerRef.current!.jumpTo(target);
         return;
       }
-      easeScroll(target, scrollRafRef);
+      scrollerRef.current!.scrollTo(target);
     },
     [scrollByRatio]
   );
@@ -214,14 +217,11 @@ export function usePreviewFollowScroll(markdown: string, followCursor: boolean) 
 
   useEffect(() => {
     if (followCursor) return;
-    if (scrollRafRef.current !== null) {
-      cancelAnimationFrame(scrollRafRef.current);
-      scrollRafRef.current = null;
-    }
+    scrollerRef.current!.stop();
   }, [followCursor]);
 
   useEffect(() => () => {
-    if (scrollRafRef.current !== null) cancelAnimationFrame(scrollRafRef.current);
+    scrollerRef.current!.stop();
   }, []);
 
   return { setCursorForFollow, syncFollowScroll };

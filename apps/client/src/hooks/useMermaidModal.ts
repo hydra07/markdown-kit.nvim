@@ -13,6 +13,7 @@ export function useMermaidModal(theme: Theme) {
 
   const mermaidViewportRef = useRef<HTMLDivElement>(null);
   const mermaidPanRef = useRef({ x: 0, y: 0 });
+  const mermaidZoomRef = useRef(1);
   const panStateRef = useRef<{
     startX: number;
     startY: number;
@@ -48,16 +49,43 @@ export function useMermaidModal(theme: Theme) {
   }, [mermaidPan]);
 
   useEffect(() => {
+    mermaidZoomRef.current = mermaidZoom;
+  }, [mermaidZoom]);
+
+  useEffect(() => {
     const viewport = mermaidViewportRef.current;
     if (!viewport || !modalSvgString) return;
 
+    // Zoom anchored to the cursor: `transform: translate(pan) scale(zoom)`
+    // scales around the content box's own (0,0), so a plain zoom used to
+    // make the diagram visibly jump away from wherever you scrolled — you'd
+    // zoom in and then have to pan to chase the part you were looking at.
+    // Solving pan so the content point under the cursor stays put fixes that.
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey) return;
       e.preventDefault();
+
+      const currentZoom = mermaidZoomRef.current;
       const factor = e.deltaY > 0 ? 0.92 : 1.08;
-      setMermaidZoom((z) =>
-        Math.max(0.4, Math.min(4, +(z * factor).toFixed(3))),
-      );
+      const nextZoom = Math.max(0.4, Math.min(4, +(currentZoom * factor).toFixed(3)));
+      if (nextZoom === currentZoom) return;
+
+      const rect = viewport.getBoundingClientRect();
+      const cursorX = e.clientX - rect.left;
+      const cursorY = e.clientY - rect.top;
+      const pan = mermaidPanRef.current;
+      // Point under the cursor, in unscaled content space.
+      const contentX = (cursorX - pan.x) / currentZoom;
+      const contentY = (cursorY - pan.y) / currentZoom;
+      const nextPan = {
+        x: cursorX - contentX * nextZoom,
+        y: cursorY - contentY * nextZoom,
+      };
+
+      mermaidZoomRef.current = nextZoom;
+      mermaidPanRef.current = nextPan;
+      setMermaidZoom(nextZoom);
+      setMermaidPan(nextPan);
     };
 
     const onPointerDown = (e: PointerEvent) => {
