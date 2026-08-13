@@ -87,13 +87,27 @@ pub fn render(markdown: &str, _theme: &str) -> String {
             Event::Start(ref tag) if is_wrappable_block(tag) => {
                 let start = get_line(range.start);
                 let end = get_line(range.end);
-                output.push(Event::Html(
+                // Tables get a *real* block wrapper (not display:contents like
+                // the others below) that doubles as the horizontal-scroll
+                // container: sizing the table itself to its own content
+                // (rather than forcing it to fill the column) means a small
+                // table just renders at its natural width instead of a big
+                // bordered box with empty space padded out to the right of
+                // its last column, while a genuinely wide table still gets a
+                // scrollbar via this wrapper's `overflow-x: auto` — done here
+                // server-side so morphdom always sees the wrapper on every
+                // diff, instead of a client-side DOM patch it would fight.
+                let open = if matches!(tag, pulldown_cmark::Tag::Table(_)) {
+                    format!(
+                        "<div class=\"mk-table-scroll\" data-src-start=\"{start}\" data-src-end=\"{end}\">"
+                    )
+                } else {
                     format!(
                         "<div data-src-start=\"{start}\" data-src-end=\"{end}\" \
                          style=\"display:contents\">"
                     )
-                    .into(),
-                ));
+                };
+                output.push(Event::Html(open.into()));
                 output.push(event);
             }
             Event::End(ref tag) if is_wrappable_block_end(tag) => {
