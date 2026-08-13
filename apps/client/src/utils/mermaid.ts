@@ -68,25 +68,61 @@ export function applyAdaptiveMermaidSizing(root: HTMLElement) {
     if (!(svg instanceof SVGSVGElement)) return;
 
     const box = parseViewBoxSize(svg);
+    const intrinsicW = box ? box.w : 360;
+    const intrinsicH = box ? box.h : 240;
+    const aspect = intrinsicW / intrinsicH;
 
-    // Size from the diagram's intrinsic width so small diagrams stay small and
-    // crisp instead of being stretched across the whole column. A gentle 1.25×
-    // scale keeps text legible; we never blow a 2-node flowchart up to full
-    // width. Falls back to a sensible default when there is no viewBox.
-    const aspect = box ? box.w / box.h : 1;
-    const shapeCount = svg.querySelectorAll(
-      "rect,circle,ellipse,polygon,path,line,polyline",
+    // Complexity proxy: node-like shapes (boxes/actors) plus text labels.
+    // Raw shape count (including <path>) over-counts — a single arrow with
+    // an arrowhead and a rounded-corner box can contribute half a dozen
+    // <path>s on their own, which previously misclassified a genuinely
+    // trivial 2-3-box diagram as "medium" and let it claim a much bigger
+    // size budget than the content warranted (a plain "A -> B" sequence
+    // diagram rendered at 422px tall for two boxes and one arrow).
+    const nodeCount = svg.querySelectorAll(
+      "rect,circle,ellipse,polygon",
     ).length;
-    // Render the SVG at (close to) its intrinsic size instead of stretching it
-    // to fill the column — that is what made small/portrait diagrams balloon.
-    // Tall + few-node diagrams (e.g. a 2-box `A-->B`) are capped hard so a lone
-    // node never grows huge; wider/denser diagrams are allowed more room.
-    let cap: number;
-    if (aspect < 0.85) cap = shapeCount <= 6 ? 220 : 380;
-    else if (aspect > 1.6) cap = 680;
-    else cap = 520;
-    const intrinsic = box ? box.w : 360;
-    const targetPx = Math.round(Math.min(cap, Math.max(160, intrinsic)));
+    const textCount = svg.querySelectorAll("text").length;
+    const complexity = nodeCount + textCount;
+
+    // Bounding box the diagram must fit inside ("contain" — scale by
+    // whichever of width/height binds first). Simple diagrams get a small
+    // box so a couple of nodes can't dominate the page just because their
+    // native SVG happens to be tall and narrow (sequence diagrams reserve
+    // lifeline height regardless of message count); denser diagrams get
+    // more room to stay legible. Click-to-zoom exists for when you need
+    // more detail than the inline size gives you.
+    let capWidth: number;
+    let capHeight: number;
+    if (complexity <= 6) {
+      capWidth = 220;
+      capHeight = 200;
+    } else if (complexity <= 14) {
+      capWidth = 380;
+      capHeight = 280;
+    } else if (complexity <= 26) {
+      capWidth = 540;
+      capHeight = 380;
+    } else {
+      capWidth = 700;
+      capHeight = 460;
+    }
+
+    // Fit inside the box; never upscale more than 2× intrinsic so a tiny
+    // diagram stays small and crisp instead of being blown up to fill the
+    // budget.
+    const scale = Math.min(capWidth / intrinsicW, capHeight / intrinsicH, 2);
+    let targetW = intrinsicW * scale;
+
+    // Floor so a diagram never shrinks to an unreadable sliver — but the
+    // floor itself is capped by the height budget too, so an extreme
+    // portrait aspect (like the sequence-diagram case above) shrinks in
+    // width right along with height instead of being forced wide enough to
+    // blow past capHeight again.
+    const minWidth = Math.min(90, capHeight * aspect);
+    targetW = Math.max(minWidth, targetW);
+
+    const targetPx = Math.round(targetW);
 
     block.style.width = "fit-content";
     block.style.maxWidth = "100%";
